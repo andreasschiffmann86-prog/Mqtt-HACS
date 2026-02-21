@@ -26,7 +26,6 @@ class KaffeeMaschineStore:
             self._entries = []
         else:
             self._entries = data.get("entries", [])
-        _LOGGER.debug("Geladene Timeline-Eintraege: %d", len(self._entries))
         return self._entries
 
     async def async_add_entry(self, entry: dict[str, Any]) -> None:
@@ -53,9 +52,7 @@ class KaffeeMaschineStore:
         return counts
 
     def get_last_drink(self) -> dict[str, Any] | None:
-        if not self._entries:
-            return None
-        return self._entries[-1]
+        return self._entries[-1] if self._entries else None
 
     def get_favorite_drink(self) -> str:
         counts = self.get_count_by_type()
