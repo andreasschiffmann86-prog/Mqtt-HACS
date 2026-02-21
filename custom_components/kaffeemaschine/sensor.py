@@ -113,7 +113,7 @@ class LetztesGetraenkSensor(KaffeemaschineSensorBase):
             return {
                 "menge_ml": letztes.get("menge_ml"),
                 "temperatur": letztes.get("temperatur"),
-                "staerke": letztes.get("staerke"),
+                "kaffee_menge_gramm": letztes.get("kaffee_menge_gramm"),
                 "zeitstempel": letztes.get("zeitstempel"),
             }
         return {}
