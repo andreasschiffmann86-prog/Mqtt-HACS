@@ -1,61 +1,48 @@
-"""Persistente Datenspeicherung fuer die Kaffeemaschine Timeline."""
+"""Persistente Speicherung für Kaffeemaschinen-Bezüge."""
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from .const import MAX_ENTRIES, STORAGE_KEY, STORAGE_VERSION
+from .const import STORAGE_KEY, STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class KaffeeMaschineStore:
-    """Verwaltet die persistente Speicherung der Timeline."""
+class KaffeemaschineSpeicher:
+    """Verwaltet die persistente Speicherung der Kaffeemaschinen-Daten."""
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        self._store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
-        self._entries: list[dict[str, Any]] = []
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        """Speicher initialisieren."""
+        self._store: Store = Store(
+            hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry_id}"
+        )
+        self._daten: dict[str, Any] = {"eintraege": []}
 
-    async def async_load(self) -> list[dict[str, Any]]:
-        data = await self._store.async_load()
-        if data is None:
-            self._entries = []
+    async def async_load(self) -> None:
+        """Gespeicherte Daten laden."""
+        gespeichert = await self._store.async_load()
+        if gespeichert is not None:
+            self._daten = gespeichert
         else:
-            self._entries = data.get("entries", [])
-        return self._entries
+            self._daten = {"eintraege": []}
 
-    async def async_add_entry(self, entry: dict[str, Any]) -> None:
-        self._entries.append(entry)
-        if len(self._entries) > MAX_ENTRIES:
-            self._entries = self._entries[-MAX_ENTRIES:]
-        await self._store.async_save({"entries": self._entries})
+    async def async_add_eintrag(self, eintrag: dict, max_eintraege: int) -> None:
+        """Neuen Bezug hinzufügen und Limit einhalten."""
+        eintraege: list = self._daten.setdefault("eintraege", [])
+        eintraege.append(eintrag)
+        if len(eintraege) > max_eintraege:
+            self._daten["eintraege"] = eintraege[-max_eintraege:]
+        await self._store.async_save(self._daten)
 
-    def get_entries(self, limit: int = 50) -> list[dict[str, Any]]:
-        return list(reversed(self._entries[-limit:]))
+    def get_eintraege(self) -> list[dict]:
+        """Alle gespeicherten Bezüge zurückgeben."""
+        return list(self._daten.get("eintraege", []))
 
-    def get_today_count(self) -> int:
-        today = datetime.now().date().isoformat()
-        return sum(1 for e in self._entries if e.get("zeitstempel", "").startswith(today))
-
-    def get_total_count(self) -> int:
-        return len(self._entries)
-
-    def get_count_by_type(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for entry in self._entries:
-            name = entry.get("getraenk", "Unbekannt")
-            counts[name] = counts.get(name, 0) + 1
-        return counts
-
-    def get_last_drink(self) -> dict[str, Any] | None:
-        return self._entries[-1] if self._entries else None
-
-    def get_favorite_drink(self) -> str:
-        counts = self.get_count_by_type()
-        if not counts:
-            return "Kein Bezug"
-        return max(counts, key=lambda k: counts[k])
+    async def async_clear(self) -> None:
+        """Alle gespeicherten Daten löschen."""
+        self._daten = {"eintraege": []}
+        await self._store.async_save(self._daten)
