@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Kaffeemaschine konfigurieren",
+        "description": "Bitte gib die Einstellungen für deine Kaffeemaschine ein.",
+        "data": {
+          "name": "Name",
+          "mqtt_topic": "MQTT Topic",
+          "qos": "QoS"
+        }
+      }
+    },
+    "error": {
+      "topic_required": "Das MQTT-Topic darf nicht leer sein.",
+      "already_configured": "Diese Integration ist bereits konfiguriert."
+    },
+    "abort": {
+      "already_configured": "Diese Integration ist bereits konfiguriert."
+    }
+  }
+}
