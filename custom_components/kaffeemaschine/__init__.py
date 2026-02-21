@@ -1,4 +1,4 @@
-"""Kaffeemaschine Statistik - Home Assistant Integration."""
+"""MQTT-Setup und Entry-Verwaltung fuer Kaffeemaschine."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,6 @@ from .const import CONF_QOS, CONF_TOPIC, DEFAULT_QOS, DEFAULT_TOPIC, DOMAIN
 from .store import KaffeeMaschineStore
 
 _LOGGER = logging.getLogger(__name__)
-
 PLATFORMS = ["sensor"]
 
 
@@ -35,14 +34,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def message_received(msg):
-        """Wird aufgerufen wenn eine MQTT-Nachricht empfangen wird."""
         try:
             payload = json.loads(msg.payload)
         except (json.JSONDecodeError, ValueError):
             _LOGGER.warning(
-                "Ungueltiger JSON-Payload auf Topic %s: %s",
-                msg.topic,
-                msg.payload,
+                "Ungueltiger JSON-Payload auf Topic %s: %s", msg.topic, msg.payload
             )
             return
 
@@ -56,12 +52,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ),
         }
 
-        _LOGGER.info(
-            "Neuer Getraenkebezug: %s um %s",
-            entry_data["getraenk"],
-            entry_data["zeitstempel"],
-        )
-
         async def _async_handle():
             await store.async_add_entry(entry_data)
             for sensor in hass.data[DOMAIN][entry.entry_id].get("sensors", []):
@@ -72,7 +62,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unsubscribe = await mqtt.async_subscribe(hass, topic, message_received, qos)
     hass.data[DOMAIN][entry.entry_id]["unsubscribe"] = unsubscribe
 
-    _LOGGER.info("Kaffeemaschine Integration gestartet, Topic: %s", topic)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -82,9 +71,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unsubscribe = hass.data[DOMAIN][entry.entry_id].get("unsubscribe")
     if unsubscribe:
         unsubscribe()
-
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
-
     return unload_ok
