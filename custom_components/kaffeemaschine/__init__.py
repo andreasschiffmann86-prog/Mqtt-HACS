@@ -62,7 +62,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         getraenk = payload.get("getraenk", "Unbekannt")
         menge_ml = payload.get("menge_ml")
         temperatur = payload.get("temperatur")
-        staerke = payload.get("staerke")
+        kaffee_menge_gramm = payload.get("kaffee_menge_gramm")
         zeitstempel_raw = payload.get("zeitstempel")
 
         if zeitstempel_raw:
@@ -77,7 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "getraenk": getraenk,
             "menge_ml": menge_ml,
             "temperatur": temperatur,
-            "staerke": staerke,
+            "kaffee_menge_gramm": kaffee_menge_gramm,
             "zeitstempel": zeitstempel,
         }
 
