@@ -1,0 +1,53 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Coffee Machine MQTT",
+        "description": "Please configure the MQTT topic and timeline settings.",
+        "data": {
+          "mqtt_topic": "MQTT Topic",
+          "max_timeline_entries": "Maximum timeline entries"
+        }
+      }
+    },
+    "error": {
+      "invalid_topic": "The MQTT topic must not be empty."
+    },
+    "abort": {
+      "already_configured": "This integration is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Coffee Machine MQTT Options",
+        "data": {
+          "mqtt_topic": "MQTT Topic",
+          "max_timeline_entries": "Maximum timeline entries"
+        }
+      }
+    },
+    "error": {
+      "invalid_topic": "The MQTT topic must not be empty."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "letztes_getraenk": {
+        "name": "Last Beverage"
+      },
+      "bezuege_heute": {
+        "name": "Beverages Today"
+      },
+      "bezuege_gesamt": {
+        "name": "Total Beverages"
+      },
+      "lieblingsgetraenk": {
+        "name": "Favourite Beverage"
+      },
+      "timeline": {
+        "name": "Timeline"
+      }
+    }
+  }
+}
