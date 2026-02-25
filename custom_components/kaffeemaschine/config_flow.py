@@ -5,12 +5,13 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
+    CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
+    DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
 )
@@ -23,7 +24,7 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Ersten Schritt im Setup-Dialog behandeln."""
         errors: dict[str, str] = {}
 
@@ -38,6 +39,9 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=f"Kaffeemaschine ({topic})",
                     data={
                         CONF_MQTT_TOPIC: topic,
+                        CONF_MQTT_ONLINE_TOPIC: user_input.get(
+                            CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC
+                        ),
                         CONF_MAX_TIMELINE_ENTRIES: user_input.get(
                             CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES
                         ),
@@ -47,6 +51,7 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Required(CONF_MQTT_TOPIC, default=DEFAULT_MQTT_TOPIC): str,
+                vol.Required(CONF_MQTT_ONLINE_TOPIC, default=DEFAULT_MQTT_ONLINE_TOPIC): str,
                 vol.Optional(
                     CONF_MAX_TIMELINE_ENTRIES, default=DEFAULT_MAX_TIMELINE_ENTRIES
                 ): vol.All(int, vol.Range(min=5, max=100)),
@@ -75,7 +80,7 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, user_input: dict | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Options-Dialog anzeigen."""
         errors: dict[str, str] = {}
 
@@ -90,6 +95,10 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
             CONF_MQTT_TOPIC,
             self.config_entry.data.get(CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC),
         )
+        current_online_topic = self.config_entry.options.get(
+            CONF_MQTT_ONLINE_TOPIC,
+            self.config_entry.data.get(CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC),
+        )
         current_max = self.config_entry.options.get(
             CONF_MAX_TIMELINE_ENTRIES,
             self.config_entry.data.get(
@@ -100,6 +109,7 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
         schema = vol.Schema(
             {
                 vol.Required(CONF_MQTT_TOPIC, default=current_topic): str,
+                vol.Required(CONF_MQTT_ONLINE_TOPIC, default=current_online_topic): str,
                 vol.Optional(
                     CONF_MAX_TIMELINE_ENTRIES, default=current_max
                 ): vol.All(int, vol.Range(min=5, max=100)),
