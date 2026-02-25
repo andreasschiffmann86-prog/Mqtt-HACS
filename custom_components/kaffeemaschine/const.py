@@ -4,10 +4,12 @@ DOMAIN = "kaffeemaschine"
 
 # Konfigurationsschlüssel
 CONF_MQTT_TOPIC = "mqtt_topic"
+CONF_MQTT_ONLINE_TOPIC = "mqtt_online_topic"
 CONF_MAX_TIMELINE_ENTRIES = "max_timeline_entries"
 
 # Standardwerte
 DEFAULT_MQTT_TOPIC = "kaffeemaschine/getraenk"
+DEFAULT_MQTT_ONLINE_TOPIC = "status/lwt"
 DEFAULT_MAX_TIMELINE_ENTRIES = 20
 
 # Speicher
@@ -34,5 +36,9 @@ SENSOR_TIMELINE = "timeline"
 SENSOR_GERAETE_INFO = "geraete_info"
 SENSOR_LETZTER_BEZUG_STATUS = "letzter_bezug_status"
 
+# Binary Sensor
+BINARY_SENSOR_ONLINE = "online"
+
 # Signal für Daten-Updates
 SIGNAL_UPDATE = f"{DOMAIN}_update"
+SIGNAL_ONLINE_UPDATE = f"{DOMAIN}_online_update"

@@ -6,6 +6,7 @@
         "description": "Bitte MQTT-Topic und Timeline-Einstellungen konfigurieren.",
         "data": {
           "mqtt_topic": "MQTT-Topic",
+          "mqtt_online_topic": "MQTT-Online-Status-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -23,6 +24,7 @@
         "title": "Kaffeemaschine MQTT Optionen",
         "data": {
           "mqtt_topic": "MQTT-Topic",
+          "mqtt_online_topic": "MQTT-Online-Status-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -53,6 +55,11 @@
       },
       "letzter_bezug_status": {
         "name": "Letzter Bezug Status"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
       }
     }
   }

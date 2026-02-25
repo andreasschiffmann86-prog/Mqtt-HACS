@@ -12,17 +12,20 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
+    CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
+    DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
+    SIGNAL_ONLINE_UPDATE,
     SIGNAL_UPDATE,
 )
 from .store import KaffeemaschineSpeicher
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["sensor"]
+PLATFORMS = ["binary_sensor", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -31,6 +34,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     topic = entry.options.get(
         CONF_MQTT_TOPIC, entry.data.get(CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC)
+    )
+    online_topic = entry.options.get(
+        CONF_MQTT_ONLINE_TOPIC,
+        entry.data.get(CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC),
     )
     max_entries = entry.options.get(
         CONF_MAX_TIMELINE_ENTRIES,
@@ -43,7 +50,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {
         "speicher": speicher,
         "topic": topic,
+        "online_topic": online_topic,
         "max_entries": max_entries,
+        "online": None,
+        "online_timestamp": None,
     }
 
     @callback
@@ -134,10 +144,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await daten["speicher"].async_add_eintrag(eintrag, daten["max_entries"])
         async_dispatcher_send(hass, f"{SIGNAL_UPDATE}_{entry_id}")
 
+    @callback
+    def mqtt_online_nachricht_empfangen(nachricht):
+        """Eingehende MQTT-Online-Status-Nachricht verarbeiten."""
+        try:
+            payload = json.loads(nachricht.payload)
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                "Ungültiger JSON-Payload auf Online-Topic %s: %s",
+                nachricht.topic,
+                nachricht.payload,
+            )
+            return
+
+        online = payload.get("online")
+        if online is None:
+            _LOGGER.debug("Kein 'online'-Feld im Payload: %s", payload)
+            return
+
+        zeitstempel_raw = payload.get("timestamp")
+        if zeitstempel_raw:
+            try:
+                ts_clean = (
+                    zeitstempel_raw.replace("Z", "+00:00")
+                    if isinstance(zeitstempel_raw, str)
+                    else zeitstempel_raw
+                )
+                zeitstempel = datetime.fromisoformat(ts_clean).isoformat()
+            except ValueError:
+                zeitstempel = datetime.now().isoformat()
+        else:
+            zeitstempel = datetime.now().isoformat()
+
+        hass.data[DOMAIN][entry.entry_id]["online"] = bool(online)
+        hass.data[DOMAIN][entry.entry_id]["online_timestamp"] = zeitstempel
+        async_dispatcher_send(hass, f"{SIGNAL_ONLINE_UPDATE}_{entry.entry_id}")
+
     unsubscribe = await mqtt.async_subscribe(
         hass, topic, mqtt_nachricht_empfangen, qos=0
     )
+    unsubscribe_online = await mqtt.async_subscribe(
+        hass, online_topic, mqtt_online_nachricht_empfangen, qos=0
+    )
     hass.data[DOMAIN][entry.entry_id]["unsubscribe"] = unsubscribe
+    hass.data[DOMAIN][entry.entry_id]["unsubscribe_online"] = unsubscribe_online
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -155,6 +205,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsubscribe = daten.get("unsubscribe")
         if unsubscribe:
             unsubscribe()
+        unsubscribe_online = daten.get("unsubscribe_online")
+        if unsubscribe_online:
+            unsubscribe_online()
 
     return unload_ok
 
