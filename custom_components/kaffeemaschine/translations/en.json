@@ -47,6 +47,12 @@
       },
       "timeline": {
         "name": "Timeline"
+      },
+      "geraete_info": {
+        "name": "Device Info"
+      },
+      "letzter_bezug_status": {
+        "name": "Last Dispense Status"
       }
     }
   }

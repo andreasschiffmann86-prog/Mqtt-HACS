@@ -31,6 +31,8 @@ SENSOR_BEZUEGE_HEUTE = "bezuege_heute"
 SENSOR_BEZUEGE_GESAMT = "bezuege_gesamt"
 SENSOR_LIEBLINGSGETRAENK = "lieblingsgetraenk"
 SENSOR_TIMELINE = "timeline"
+SENSOR_GERAETE_INFO = "geraete_info"
+SENSOR_LETZTER_BEZUG_STATUS = "letzter_bezug_status"
 
 # Signal für Daten-Updates
 SIGNAL_UPDATE = f"{DOMAIN}_update"
