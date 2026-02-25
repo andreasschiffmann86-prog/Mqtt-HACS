@@ -17,6 +17,8 @@ from .const import (
     SENSOR_LIEBLINGSGETRAENK,
     SENSOR_LETZTES_GETRAENK,
     SENSOR_TIMELINE,
+    SENSOR_GERAETE_INFO,
+    SENSOR_LETZTER_BEZUG_STATUS,
     SIGNAL_UPDATE,
 )
 from .store import KaffeemaschineSpeicher
@@ -45,6 +47,8 @@ async def async_setup_entry(
         BezuegeGesamtSensor(hass, entry.entry_id, speicher),
         LieblingsgetraenkSensor(hass, entry.entry_id, speicher),
         TimelineSensor(hass, entry.entry_id, speicher),
+        GeraeteInfoSensor(hass, entry.entry_id, speicher),
+        LetzterBezugStatusSensor(hass, entry.entry_id, speicher),
     ]
     async_add_entities(sensoren)
 
@@ -115,6 +119,17 @@ class LetztesGetraenkSensor(KaffeemaschineSensorBase):
                 "temperatur": letztes.get("temperatur"),
                 "kaffee_menge_gramm": letztes.get("kaffee_menge_gramm"),
                 "zeitstempel": letztes.get("zeitstempel"),
+                "canceled": letztes.get("canceled"),
+                "cup_size": letztes.get("cup_size"),
+                "cycle_time": letztes.get("cycle_time"),
+                "extraction_time": letztes.get("extraction_time"),
+                "is_double": letztes.get("is_double"),
+                "strokes": letztes.get("strokes"),
+                "beverage_id": letztes.get("beverage_id"),
+                "ingredients": letztes.get("ingredients"),
+                "device_model": letztes.get("device_model"),
+                "device_serial": letztes.get("device_serial"),
+                "store_id": letztes.get("store_id"),
             }
         return {}
 
@@ -198,3 +213,89 @@ class TimelineSensor(KaffeemaschineSensorBase):
         return {
             "timeline": get_timeline(self._speicher.get_eintraege(), anzahl=20),
         }
+
+
+class GeraeteInfoSensor(KaffeemaschineSensorBase):
+    """Sensor für Geräte-Informationen der Kaffeemaschine."""
+
+    _attr_icon = "mdi:information-outline"
+    _attr_translation_key = SENSOR_GERAETE_INFO
+
+    def __init__(
+        self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
+    ) -> None:
+        """Sensor initialisieren."""
+        super().__init__(hass, entry_id, speicher, SENSOR_GERAETE_INFO)
+
+    @property
+    def native_value(self) -> str | None:
+        """Maschinenmodell zurückgeben."""
+        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        if letztes and letztes.get("device_model"):
+            return letztes.get("device_model")
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Geräte-Details als Attribute zurückgeben."""
+        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        if letztes:
+            return {
+                "manufacturer": letztes.get("device_manufacturer"),
+                "model": letztes.get("device_model"),
+                "serial_number": letztes.get("device_serial"),
+                "software_version": letztes.get("device_sw_version"),
+                "store_id": letztes.get("store_id"),
+            }
+        return {}
+
+
+class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
+    """Sensor für den Status des letzten Bezugs (erfolgreich/abgebrochen)."""
+
+    _attr_icon = "mdi:check-circle-outline"
+    _attr_translation_key = SENSOR_LETZTER_BEZUG_STATUS
+
+    def __init__(
+        self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
+    ) -> None:
+        """Sensor initialisieren."""
+        super().__init__(hass, entry_id, speicher, SENSOR_LETZTER_BEZUG_STATUS)
+
+    @property
+    def native_value(self) -> str | None:
+        """Status des letzten Bezugs zurückgeben."""
+        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        if letztes:
+            canceled = letztes.get("canceled")
+            if canceled is True:
+                return "Abgebrochen"
+            elif canceled is False:
+                return "Erfolgreich"
+            return "Unbekannt"
+        return None
+
+    @property
+    def icon(self) -> str:
+        """Icon basierend auf Status."""
+        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        if letztes and letztes.get("canceled") is True:
+            return "mdi:cancel"
+        return "mdi:check-circle-outline"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Bezug-Details als Attribute zurückgeben."""
+        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        if letztes:
+            return {
+                "beverage_id": letztes.get("beverage_id"),
+                "cup_size": letztes.get("cup_size"),
+                "cycle_time": letztes.get("cycle_time"),
+                "extraction_time": letztes.get("extraction_time"),
+                "is_double": letztes.get("is_double"),
+                "strokes": letztes.get("strokes"),
+                "ingredients": letztes.get("ingredients"),
+                "canceled": letztes.get("canceled"),
+            }
+        return {}

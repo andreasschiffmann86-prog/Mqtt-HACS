@@ -148,6 +148,27 @@ class KaffeemaschineCard extends HTMLElement {
           color: var(--secondary-text-color, #727272);
           margin-top: 2px;
         }
+        .entry-details {
+          font-size: 0.7rem;
+          color: var(--secondary-text-color, #999);
+          margin-top: 1px;
+        }
+        .entry-status {
+          display: inline-block;
+          font-size: 0.65rem;
+          font-weight: 600;
+          padding: 1px 6px;
+          border-radius: 8px;
+          margin-left: 4px;
+        }
+        .status-ok {
+          background: #e8f5e9;
+          color: #2e7d32;
+        }
+        .status-canceled {
+          background: #fbe9e7;
+          color: #c62828;
+        }
         .entry-time {
           font-size: 0.75rem;
           color: var(--secondary-text-color, #727272);
@@ -190,23 +211,36 @@ class KaffeemaschineCard extends HTMLElement {
               ? '<div class="empty">Noch keine Bezüge vorhanden.</div>'
               : entries
                   .map(
-                    (e) => `
+                    (e) => {
+                      const meta = [
+                        e.menge_ml != null ? `${e.menge_ml} ml` : null,
+                        e.temperatur != null ? `${e.temperatur}°C` : null,
+                        e.staerke || null,
+                      ].filter(Boolean).join(" · ");
+
+                      const details = [
+                        e.cup_size != null ? `Größe ${e.cup_size}` : null,
+                        e.is_double === true ? "Doppelt" : null,
+                        e.strokes != null ? `${e.strokes}x Brühung` : null,
+                        e.cycle_time != null ? `${(e.cycle_time / 1000).toFixed(0)}s Zyklus` : null,
+                        e.extraction_time != null && e.extraction_time > 0 ? `${(e.extraction_time / 1000).toFixed(0)}s Extraktion` : null,
+                      ].filter(Boolean).join(" · ");
+
+                      const statusClass = e.canceled === true ? "status-canceled" : e.canceled === false ? "status-ok" : "";
+                      const statusText = e.canceled === true ? "Abgebrochen" : e.canceled === false ? "✓" : "";
+                      const statusHtml = statusText ? `<span class="entry-status ${statusClass}">${statusText}</span>` : "";
+
+                      return `
             <div class="entry">
               <div class="entry-icon">${getraenkIcon(e.getraenk)}</div>
               <div class="entry-info">
-                <div class="entry-name">${e.getraenk || "Unbekannt"}</div>
-                <div class="entry-meta">${
-                  [
-                    e.menge_ml != null ? `${e.menge_ml} ml` : null,
-                    e.temperatur != null ? `${e.temperatur}°C` : null,
-                    e.staerke || null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                }</div>
+                <div class="entry-name">${e.getraenk || "Unbekannt"}${statusHtml}</div>
+                ${meta ? `<div class="entry-meta">${meta}</div>` : ""}
+                ${details ? `<div class="entry-details">${details}</div>` : ""}
               </div>
               <div class="entry-time">${formatZeitstempel(e.zeitstempel)}</div>
-            </div>`
+            </div>`;
+                    }
                   )
                   .join("")
           }
