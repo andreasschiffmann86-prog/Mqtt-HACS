@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -12,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     DOMAIN,
+    SENSOR_ALERT_TIMELINE,
     SENSOR_BEZUEGE_GESAMT,
     SENSOR_BEZUEGE_HEUTE,
     SENSOR_LIEBLINGSGETRAENK,
@@ -19,6 +21,7 @@ from .const import (
     SENSOR_TIMELINE,
     SENSOR_GERAETE_INFO,
     SENSOR_LETZTER_BEZUG_STATUS,
+    SIGNAL_ALERT_UPDATE,
     SIGNAL_UPDATE,
 )
 from .store import KaffeemaschineSpeicher
@@ -49,6 +52,7 @@ async def async_setup_entry(
         TimelineSensor(hass, entry.entry_id, speicher),
         GeraeteInfoSensor(hass, entry.entry_id, speicher),
         LetzterBezugStatusSensor(hass, entry.entry_id, speicher),
+        AlertTimelineSensor(hass, entry.entry_id, speicher),
     ]
     async_add_entities(sensoren)
 
@@ -299,3 +303,116 @@ class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
                 "canceled": letztes.get("canceled"),
             }
         return {}
+
+
+class AlertTimelineSensor(SensorEntity):
+    """Sensor für die Alert-Timeline der Kaffeemaschine."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle"
+    _attr_translation_key = SENSOR_ALERT_TIMELINE
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        speicher: KaffeemaschineSpeicher,
+    ) -> None:
+        """Sensor initialisieren."""
+        self.hass = hass
+        self._entry_id = entry_id
+        self._speicher = speicher
+        self._attr_unique_id = f"{entry_id}_{SENSOR_ALERT_TIMELINE}"
+
+    async def async_added_to_hass(self) -> None:
+        """Auf Alert-Dispatcher-Signale hören."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_ALERT_UPDATE}_{self._entry_id}",
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Sensor-Zustand aktualisieren."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Anzahl der aktuell offenen Alerts zurückgeben."""
+        return len(self._speicher.get_open_alerts())
+
+    @property
+    def icon(self) -> str:
+        """Icon: rot bei offenen Alerts, grün sonst."""
+        if self._speicher.get_open_alerts():
+            return "mdi:alert-circle"
+        return "mdi:check-circle"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Alert-Timeline als Attribut zurückgeben (neueste zuerst)."""
+        now = datetime.now(tz=timezone.utc)
+        alle_alerts = self._speicher.get_alerts()
+        offene_alerts = self._speicher.get_open_alerts()
+
+        def _bereichere_alert(alert: dict) -> dict:
+            enriched = dict(alert)
+            if alert.get("clearTime") is None:
+                # Dauer berechnen
+                try:
+                    raise_dt = datetime.fromisoformat(alert["raiseTime"])
+                    if raise_dt.tzinfo is None:
+                        raise_dt = raise_dt.replace(tzinfo=timezone.utc)
+                    delta = now - raise_dt
+                    total_sec = int(delta.total_seconds())
+                    stunden = total_sec // 3600
+                    minuten = (total_sec % 3600) // 60
+                    sekunden = total_sec % 60
+                    if stunden > 0:
+                        enriched["duration"] = f"{stunden}h {minuten}m"
+                    elif minuten > 0:
+                        enriched["duration"] = f"{minuten}m {sekunden}s"
+                    else:
+                        enriched["duration"] = f"{sekunden}s"
+                    enriched["duration_seconds"] = total_sec
+                except (ValueError, KeyError, TypeError):
+                    enriched["duration"] = None
+                    enriched["duration_seconds"] = None
+                enriched["status"] = "offen"
+            else:
+                # Dauer von Raise bis Clear
+                try:
+                    raise_dt = datetime.fromisoformat(alert["raiseTime"])
+                    clear_dt = datetime.fromisoformat(alert["clearTime"])
+                    if raise_dt.tzinfo is None:
+                        raise_dt = raise_dt.replace(tzinfo=timezone.utc)
+                    if clear_dt.tzinfo is None:
+                        clear_dt = clear_dt.replace(tzinfo=timezone.utc)
+                    delta = clear_dt - raise_dt
+                    total_sec = int(delta.total_seconds())
+                    stunden = total_sec // 3600
+                    minuten = (total_sec % 3600) // 60
+                    sekunden = total_sec % 60
+                    if stunden > 0:
+                        enriched["duration"] = f"{stunden}h {minuten}m"
+                    elif minuten > 0:
+                        enriched["duration"] = f"{minuten}m {sekunden}s"
+                    else:
+                        enriched["duration"] = f"{sekunden}s"
+                    enriched["duration_seconds"] = total_sec
+                except (ValueError, KeyError, TypeError):
+                    enriched["duration"] = None
+                    enriched["duration_seconds"] = None
+                enriched["status"] = "geschlossen"
+            return enriched
+
+        return {
+            "open_alerts": [_bereichere_alert(a) for a in offene_alerts],
+            "open_count": len(offene_alerts),
+            "all_alerts": [_bereichere_alert(a) for a in alle_alerts],
+        }
+

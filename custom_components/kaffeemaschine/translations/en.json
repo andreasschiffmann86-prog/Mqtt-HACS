@@ -6,6 +6,7 @@
         "description": "Please configure the MQTT topic and timeline settings.",
         "data": {
           "mqtt_topic": "MQTT Topic",
+          "mqtt_alert_topic": "MQTT Alert Topic",
           "max_timeline_entries": "Maximum timeline entries"
         }
       }
@@ -23,6 +24,7 @@
         "title": "Coffee Machine MQTT Options",
         "data": {
           "mqtt_topic": "MQTT Topic",
+          "mqtt_alert_topic": "MQTT Alert Topic",
           "max_timeline_entries": "Maximum timeline entries"
         }
       }
@@ -53,6 +55,14 @@
       },
       "letzter_bezug_status": {
         "name": "Last Dispense Status"
+      },
+      "alert_timeline": {
+        "name": "Alert Timeline"
+      }
+    },
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
       }
     }
   }
