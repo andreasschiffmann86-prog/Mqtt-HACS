@@ -7,6 +7,7 @@
         "data": {
           "mqtt_topic": "MQTT-Topic",
           "mqtt_online_topic": "MQTT-Online-Status-Topic",
+          "mqtt_alert_topic": "MQTT-Alert-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -25,6 +26,7 @@
         "data": {
           "mqtt_topic": "MQTT-Topic",
           "mqtt_online_topic": "MQTT-Online-Status-Topic",
+          "mqtt_alert_topic": "MQTT-Alert-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -55,6 +57,9 @@
       },
       "letzter_bezug_status": {
         "name": "Letzter Bezug Status"
+      },
+      "alert_timeline": {
+        "name": "Alert-Timeline"
       }
     },
     "binary_sensor": {

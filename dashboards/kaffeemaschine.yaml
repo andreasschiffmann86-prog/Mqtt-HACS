@@ -1,0 +1,30 @@
+views:
+  - title: Kaffeemaschine
+    cards:
+      - type: custom:kaffeemaschine-card
+        entity: sensor.timeline
+        online_entity: binary_sensor.konnektivitat
+        title: "☕ Meine Kaffeemaschine"
+
+      - type: custom:kaffeemaschine-card
+        alert_only: true
+        alert_entity: sensor.alert_timeline
+        online_entity: binary_sensor.konnektivitat
+        title: "Maschinenstatus"
+
+      - type: entities
+        title: Statistiken
+        entities:
+          - entity: binary_sensor.konnektivitat
+            name: Onlinestatus
+          - sensor.bezuge_heute
+          - sensor.bezuge_gesamt
+          - sensor.lieblingsgetrank
+          - sensor.letztes_getrank
+          - sensor.letzter_bezug_status
+          - sensor.gerate_info
+
+      - type: custom:kaffeemaschine-card
+        chart_only: true
+        entity: sensor.timeline
+        title: "Getränke Übersicht"
