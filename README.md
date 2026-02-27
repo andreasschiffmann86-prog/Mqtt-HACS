@@ -1,163 +1,268 @@
-# ☕ Kaffeemaschine Statistik
+﻿# ☕ Kaffeemaschine Statistik
 
-Home Assistant Custom Integration für **Kaffeemaschinen-Statistik via MQTT** – HACS-kompatibel.
+Home Assistant Custom Integration für **Kaffeemaschinen-Statistik und Alert-Monitoring via MQTT** – HACS-kompatibel.
 
 ---
 
-## Übersicht & Features
+## Features
 
-- 📡 **MQTT-Empfang**: Empfängt Getränkedaten von deiner Kaffeemaschine in Echtzeit
-- 📊 **Statistiken**: Bezüge heute, Gesamtanzahl, Lieblingsgetränk
-- 🕒 **Timeline**: Persistenter Verlauf der letzten Getränkebezüge (bis zu 1000 Einträge)
-- 🃏 **Lovelace Card**: Moderne Custom Card für die Timeline-Ansicht
-- 🔄 **Persistenz**: Daten überleben Home Assistant Neustarts
+| Feature | Beschreibung |
+|---------|-------------|
+| 📡 **MQTT-Empfang** | Getränkedaten und Alerts in Echtzeit |
+| 📊 **Statistiken** | Bezüge heute, Gesamtanzahl, Lieblingsgetränk |
+| 🕒 **Timeline** | Persistenter Verlauf (bis zu 1000 Einträge) |
+| 🚨 **Alert-Monitoring** | RAISE/CLEAR Alerts mit Live-Timer |
+| 🔌 **Offline-Erkennung** | Automatisches Schließen offener Alerts bei Verbindungsverlust |
+| 🃏 **Lovelace Card** | Drei Darstellungsmodi: Timeline, Alert-Status, Balkendiagramm |
+| 🔄 **Persistenz** | Daten überleben Home Assistant Neustarts |
 
 ---
 
 ## Voraussetzungen
 
-- Home Assistant **2023.1.0** oder neuer
+- Home Assistant **2024.1.0** oder neuer
 - Funktionierender **MQTT Broker** (z.B. Mosquitto)
-- MQTT-Integration in Home Assistant bereits eingerichtet
-- Kaffeemaschine (oder Gerät) sendet MQTT-Nachrichten im vorgegebenen JSON-Format
+- MQTT-Integration in Home Assistant eingerichtet
+- Kaffeemaschine sendet MQTT-Nachrichten im beschriebenen JSON-Format
 
 ---
 
 ## Installation via HACS
 
 1. Öffne **HACS** → **Integrationen**
-2. Klicke auf die drei Punkte (⋮) → **Benutzerdefinierte Repositories**
-3. Repository-URL eingeben: `https://github.com/andreasschiffmann86-prog/Mqtt-HACS`
+2. Klicke auf ⋮ → **Benutzerdefinierte Repositories**
+3. URL eingeben: `https://github.com/andreasschiffmann86-prog/Mqtt-HACS`
 4. Kategorie: **Integration** → **Hinzufügen**
-5. Suche nach „Kaffeemaschine Statistik" und klicke auf **Herunterladen**
+5. „Kaffeemaschine Statistik" suchen und **Herunterladen** klicken
 6. Home Assistant neu starten
 
-### Lovelace Card installieren (HACS)
+### Lovelace Card (HACS)
 
-1. Öffne **HACS** → **Frontend**
-2. Benutzerdefiniertes Repository hinzufügen (gleiche URL, Kategorie: **Lovelace**)
-3. „Kaffeemaschine Card" herunterladen
-4. HA neu starten oder Lovelace-Ressourcen neu laden
+1. **HACS** → **Frontend** → Benutzerdefiniertes Repository hinzufügen (gleiche URL, Kategorie: **Lovelace**)
+2. „Kaffeemaschine Card" herunterladen
+3. Browser-Cache leeren (`Strg+Shift+R`)
 
 ---
 
 ## Manuelle Installation
 
-1. Lade das Repository als ZIP herunter und entpacke es
-2. Kopiere den Ordner `custom_components/kaffeemaschine/` in dein HA-Verzeichnis:
-   ```
-   <config>/custom_components/kaffeemaschine/
-   ```
-3. Kopiere `www/kaffeemaschine-card/kaffeemaschine-card.js` nach:
-   ```
-   <config>/www/kaffeemaschine-card/kaffeemaschine-card.js
-   ```
-4. Füge die Lovelace-Ressource in `configuration.yaml` ein (oder über die UI):
-   ```yaml
-   lovelace:
-     resources:
-       - url: /local/kaffeemaschine-card/kaffeemaschine-card.js
-         type: module
-   ```
-5. Home Assistant neu starten
+```
+custom_components/kaffeemaschine/   →  <config>/custom_components/kaffeemaschine/
+www/kaffeemaschine-card/            →  <config>/www/kaffeemaschine-card/
+```
+
+Lovelace-Ressource in `configuration.yaml` eintragen:
+
+```yaml
+lovelace:
+  resources:
+    - url: /local/kaffeemaschine-card/kaffeemaschine-card.js
+      type: module
+```
 
 ---
 
 ## Konfiguration
 
-### Config Flow (empfohlen)
+**Einstellungen → Geräte & Dienste → Integration hinzufügen → „Kaffeemaschine Statistik"**
 
-1. Gehe zu **Einstellungen** → **Geräte & Dienste** → **Integration hinzufügen**
-2. Suche nach „Kaffeemaschine Statistik"
-3. Fülle die Felder aus:
-
-| Feld | Beschreibung | Standard |
+| Feld | Beschreibung | Beispiel |
 |------|-------------|---------|
-| Name | Anzeigename der Integration | `Meine Kaffeemaschine` |
-| MQTT Topic | Topic, auf dem deine Maschine publiziert | `kaffeemaschine/getraenk` |
-| QoS | MQTT Quality of Service (0, 1 oder 2) | `0` |
-
-### Lovelace Card einrichten
-
-Füge die Card in dein Dashboard ein:
-
-```yaml
-type: custom:kaffeemaschine-card
-entity: sensor.kaffeemaschine_timeline
-title: "☕ Meine Kaffeemaschine"
-```
+| Name | Anzeigename | `Kaffeemaschine Büro` |
+| MQTT Topic (Getränke) | Topic für Bezugsdaten | `pcm/store01/equipment/coffee01/123/beverages` |
+| MQTT Topic (Online-Status) | Topic für Konnektivität | `pcm/store01/equipment/coffee01/123/connectivity` |
+| MQTT Topic (Alerts) | Basis-Topic für Alerts (Wildcard `#` wird intern ergänzt) | `pcm/store01/equipment/coffee01/123/alerts` |
 
 ---
 
-## MQTT Payload Format
+## MQTT Topics & Payload-Formate
 
-Deine Kaffeemaschine muss JSON-Nachrichten in folgendem Format senden:
+### Getränkebezug
+
+**Topic:** `pcm/store01/equipment/coffee01/123/beverages`
 
 ```json
 {
-  "getraenk": "Espresso",
-  "menge_ml": 40,
-  "temperatur": 92,
-  "staerke": "stark",
-  "zeitstempel": "2026-02-21T10:30:00"
+  "messageType": "BEVERAGE_DISPENSING_FINISHED",
+  "messageId": "abc-123",
+  "timestamp": "2026-02-27T10:30:00Z",
+  "device": {
+    "model": "SuperCoffee 3000",
+    "serialNumber": "123",
+    "manufacturer": "Kaffeemaschinen GmbH",
+    "softwareVersion": "2.9.0"
+  },
+  "storeId": "store01",
+  "payload": {
+    "beverageName": "Espresso",
+    "beverageId": 1,
+    "amount": 40,
+    "temperature": 92,
+    "cupSize": 1,
+    "isDouble": false,
+    "cycleTime": 28000,
+    "extractionTime": 25000,
+    "strokes": 1,
+    "canceled": false,
+    "ingredients": [
+      { "type": 18, "amount": 8, "unit": 2 },
+      { "type": 0,  "amount": 40, "unit": 1 }
+    ]
+  }
 }
 ```
 
-### Unterstützte Getränketypen
+### Online-Status / Konnektivität
 
-| Getränk | Icon |
-|---------|------|
-| Espresso | ☕ |
-| Kaffee | ☕ |
-| Cappuccino | 🍵 |
-| Latte Macchiato | 🥛 |
-| Americano | ☕ |
-| Heißwasser | 💧 |
-| Dampf | 💨 |
-
-### Beispiel-Payloads
+**Topic:** `pcm/store01/equipment/coffee01/123/connectivity`
 
 ```json
-{ "getraenk": "Cappuccino", "menge_ml": 150, "temperatur": 70, "staerke": "mittel", "zeitstempel": "2026-02-21T08:00:00" }
-{ "getraenk": "Espresso", "menge_ml": 40, "temperatur": 92, "staerke": "stark", "zeitstempel": "2026-02-21T10:30:00" }
-{ "getraenk": "Latte Macchiato", "menge_ml": 300, "temperatur": 65, "staerke": "mild", "zeitstempel": "2026-02-21T14:15:00" }
+{
+  "messageType": "CONNECTIVITY_CHANGED",
+  "messageId": "def-456",
+  "timestamp": "2026-02-27T10:00:00Z",
+  "device": { "serialNumber": "123" },
+  "storeId": "store01",
+  "payload": {
+    "online": true
+  }
+}
 ```
+
+> Wenn `online: false` empfangen wird, werden alle offenen Alerts automatisch geschlossen.
+
+### Alert RAISE
+
+**Topic:** `pcm/store01/equipment/coffee01/123/alerts/raise`
+
+```json
+{
+  "messageType": "ALERT_RAISE",
+  "messageId": "ghi-789",
+  "timestamp": "2026-02-27T10:45:00Z",
+  "device": {
+    "model": "SuperCoffee 3000",
+    "serialNumber": "123",
+    "manufacturer": "Kaffeemaschinen GmbH",
+    "softwareVersion": "2.9.0",
+    "firmwareVersion": "1.2.3"
+  },
+  "storeId": "store01",
+  "payload": {
+    "alertId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "category": "MACHINE",
+    "description": "Error 68",
+    "errorCode": 68,
+    "severity": "STANDARD"
+  }
+}
+```
+
+### Alert CLEAR
+
+**Topic:** `pcm/store01/equipment/coffee01/123/alerts/clear`
+
+```json
+{
+  "messageType": "ALERT_CLEAR",
+  "messageId": "jkl-012",
+  "timestamp": "2026-02-27T10:50:00Z",
+  "device": { "serialNumber": "123" },
+  "storeId": "store01",
+  "payload": {
+    "alertId": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+  }
+}
+```
+
+> Die Integration abonniert intern `alert_topic/#`, sodass beide Subtopics (`/raise`, `/clear`) automatisch empfangen werden.
 
 ---
 
 ## Sensor-Übersicht
 
-| Sensor | Beschreibung | Einheit |
-|--------|-------------|---------|
-| `sensor.kaffeemaschine_letztes_getraenk` | Name des zuletzt bezogenen Getränks | – |
-| `sensor.kaffeemaschine_bezuege_heute` | Anzahl Bezüge am heutigen Tag | Bezüge |
-| `sensor.kaffeemaschine_bezuege_gesamt` | Gesamtanzahl aller Bezüge | Bezüge |
-| `sensor.kaffeemaschine_lieblingsgetraenk` | Am häufigsten bezogenes Getränk | – |
-| `sensor.kaffeemaschine_timeline` | Anzahl Timeline-Einträge + letzte 20 Bezüge als Attribut | – |
+| Sensor | Beschreibung |
+|--------|-------------|
+| `sensor.<name>_timeline` | Anzahl Timeline-Einträge + Verlauf der Bezüge als Attribut |
+| `sensor.<name>_bezuge_heute` | Anzahl Bezüge am heutigen Tag |
+| `sensor.<name>_bezuge_gesamt` | Gesamtanzahl aller Bezüge |
+| `sensor.<name>_lieblingsgetrank` | Am häufigsten bezogenes Getränk |
+| `sensor.<name>_letztes_getrank` | Zuletzt bezogenes Getränk |
+| `sensor.<name>_letzter_bezug_status` | Status des letzten Bezugs (OK / Abgebrochen) |
+| `sensor.<name>_gerate_info` | Gerätemodell und Seriennummer |
+| `sensor.<name>_alert_timeline` | Anzahl offener Alerts + Alert-Liste als Attribut |
+| `binary_sensor.<name>_konnektivitat` | Online-Status der Maschine (`on` = online) |
 
-### Attribute von `sensor.kaffeemaschine_letztes_getraenk`
-
-```yaml
-menge_ml: 40
-temperatur: 92
-staerke: "stark"
-zeitstempel: "2026-02-21T10:30:00"
-```
-
-### Attribute von `sensor.kaffeemaschine_timeline`
+### Attribute von `sensor.<name>_alert_timeline`
 
 ```yaml
-entries:
-  - zeitstempel: "2026-02-21T10:30:00"
-    getraenk: "Espresso"
-    menge_ml: 40
-    temperatur: 92
-    staerke: "stark"
+open_count: 1
+open_alerts:
+  - alertId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    category: "MACHINE"
+    description: "Error 68"
+    errorCode: 68
+    severity: "STANDARD"
+    raiseTime: "2026-02-27T10:45:00+00:00"
+    clearTime: null
+    status: "offen"
+    duration: "5m 12s"
+    duration_seconds: 312
+    storeId: "store01"
+all_alerts:
+  - ...  # alle Alerts (offen + geschlossen), neueste zuerst
 ```
 
 ---
 
-## Beispiel Lovelace Dashboard (YAML)
+## Lovelace Card
+
+### Modus 1: Timeline-Card (Standard)
+
+```yaml
+type: custom:kaffeemaschine-card
+entity: sensor.kaffeemaschine_timeline
+online_entity: binary_sensor.kaffeemaschine_konnektivitat
+title: "☕ Kaffeemaschine"
+max_entries: 10
+```
+
+Zeigt Getränke-Timeline mit Statistiken (Heute / Gesamt / Lieblingsgetränk) und Online-Indikator.
+
+---
+
+### Modus 2: Alert-Card (`alert_only: true`)
+
+```yaml
+type: custom:kaffeemaschine-card
+alert_only: true
+alert_entity: sensor.kaffeemaschine_alert_timeline
+online_entity: binary_sensor.kaffeemaschine_konnektivitat
+title: "Maschinenstatus"
+```
+
+| Zustand | Header-Farbe | Darstellung |
+|---------|-------------|-------------|
+| Online, keine Alerts | Grün | „Alle Systeme in Ordnung" |
+| Online, Alerts offen | Rot | Offene Alerts mit Live-Sekundentimer |
+| Offline | Grau | Gedimmt, Hinweis „Keine Verbindung" |
+
+---
+
+### Modus 3: Balkendiagramm (`chart_only: true`)
+
+```yaml
+type: custom:kaffeemaschine-card
+chart_only: true
+entity: sensor.kaffeemaschine_timeline
+title: "Getränke Übersicht"
+```
+
+Drei umschaltbare Zeiträume per Tab: **Heute** · **Diese Woche** · **Gesamt**
+
+---
+
+### Vollständiges Dashboard-Beispiel
 
 ```yaml
 views:
@@ -165,52 +270,110 @@ views:
     cards:
       - type: custom:kaffeemaschine-card
         entity: sensor.kaffeemaschine_timeline
-        title: "☕ Meine Kaffeemaschine"
+        online_entity: binary_sensor.kaffeemaschine_konnektivitat
+        title: "☕ Kaffeemaschine"
+        max_entries: 10
+
+      - type: custom:kaffeemaschine-card
+        alert_only: true
+        alert_entity: sensor.kaffeemaschine_alert_timeline
+        online_entity: binary_sensor.kaffeemaschine_konnektivitat
+        title: "Maschinenstatus"
+
+      - type: custom:kaffeemaschine-card
+        chart_only: true
+        entity: sensor.kaffeemaschine_timeline
+        title: "Getränke Übersicht"
 
       - type: entities
         title: Statistiken
         entities:
-          - sensor.kaffeemaschine_bezuege_heute
-          - sensor.kaffeemaschine_bezuege_gesamt
-          - sensor.kaffeemaschine_lieblingsgetraenk
-          - sensor.kaffeemaschine_letztes_getraenk
+          - binary_sensor.kaffeemaschine_konnektivitat
+          - sensor.kaffeemaschine_bezuge_heute
+          - sensor.kaffeemaschine_bezuge_gesamt
+          - sensor.kaffeemaschine_lieblingsgetrank
+          - sensor.kaffeemaschine_letztes_getrank
+          - sensor.kaffeemaschine_gerate_info
+```
 
-      - type: history-graph
-        title: Bezüge heute
-        entities:
-          - sensor.kaffeemaschine_bezuege_heute
+---
+
+## Automatisierungs-Beispiele
+
+### Benachrichtigung bei offenem Alert
+
+```yaml
+automation:
+  - alias: "Kaffeemaschine Alert öffnet"
+    trigger:
+      - platform: state
+        entity_id: sensor.kaffeemaschine_alert_timeline
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state | int > 0 }}"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "☕ Kaffeemaschine Alert"
+          message: >
+            {{ state_attr('sensor.kaffeemaschine_alert_timeline', 'open_alerts')[0].description }}
+            (Code {{ state_attr('sensor.kaffeemaschine_alert_timeline', 'open_alerts')[0].errorCode }})
+```
+
+### Benachrichtigung bei Verbindungsverlust
+
+```yaml
+automation:
+  - alias: "Kaffeemaschine Offline"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.kaffeemaschine_konnektivitat
+        to: "off"
+        for: "00:02:00"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "☕ Kaffeemaschine offline"
+          message: "Die Kaffeemaschine hat seit 2 Minuten keine Verbindung."
+```
+
+---
+
+## MQTT-Test mit mosquitto_pub
+
+```bash
+# Getränkebezug simulieren
+mosquitto_pub -h <broker-ip> \
+  -t "pcm/store01/equipment/coffee01/123/beverages" \
+  -m '{"messageType":"BEVERAGE_DISPENSING_FINISHED","messageId":"test-001","timestamp":"2026-02-27T10:30:00Z","device":{"model":"TestMaschine","serialNumber":"123","manufacturer":"Test GmbH","softwareVersion":"1.0"},"storeId":"store01","payload":{"beverageName":"Espresso","beverageId":1,"amount":40,"temperature":92,"canceled":false}}'
+
+# Alert auslösen
+mosquitto_pub -h <broker-ip> \
+  -t "pcm/store01/equipment/coffee01/123/alerts/raise" \
+  -m '{"messageType":"ALERT_RAISE","messageId":"test-002","timestamp":"2026-02-27T10:45:00Z","device":{"serialNumber":"123"},"storeId":"store01","payload":{"alertId":"aaaaaaaa-0000-0000-0000-bbbbbbbbbbbb","category":"MACHINE","description":"Testfehler","errorCode":99,"severity":"STANDARD"}}'
+
+# Alert schließen
+mosquitto_pub -h <broker-ip> \
+  -t "pcm/store01/equipment/coffee01/123/alerts/clear" \
+  -m '{"messageType":"ALERT_CLEAR","messageId":"test-003","timestamp":"2026-02-27T10:50:00Z","device":{"serialNumber":"123"},"storeId":"store01","payload":{"alertId":"aaaaaaaa-0000-0000-0000-bbbbbbbbbbbb"}}'
 ```
 
 ---
 
 ## Troubleshooting
 
-### Integration erscheint nicht in HA
+| Problem | Lösung |
+|---------|--------|
+| Integration erscheint nicht | Ordner korrekt unter `custom_components/kaffeemaschine/`? HA-Logs prüfen. |
+| Keine MQTT-Nachrichten | Topic in der Konfiguration prüfen. Mit MQTT Explorer testen. |
+| Alerts kommen nicht an | Alert-Topic prüfen – die Integration ergänzt intern `/#`. Basis-Topic ohne abschließendes `/` konfigurieren. |
+| Timer zeigt „?" | Die Integration verwendet intern immer UTC-Serverzeit – Payload-Timestamp wird ignoriert. |
+| Card lädt nicht | Browser-Cache leeren (`Strg+Shift+R`). Lovelace-Ressource registriert? Browser-Konsole auf JS-Fehler prüfen. |
+| HTTP 500 beim Öffnen der Optionen | Integration deaktivieren und neu aktivieren – Config Entry Migration auf Version 2 läuft automatisch. |
 
-- Stelle sicher, dass der Ordner korrekt unter `custom_components/kaffeemaschine/` liegt
-- Prüfe, ob die MQTT-Integration in HA konfiguriert ist
-- Schaue in die HA-Logs unter **Einstellungen** → **System** → **Logs**
+### HA-Logs prüfen
 
-### Keine MQTT-Nachrichten werden empfangen
-
-- Prüfe das Topic in der Integrationskonfiguration
-- Teste mit einem MQTT-Client (z.B. MQTT Explorer):
-  ```
-  mosquitto_pub -h <broker> -t kaffeemaschine/getraenk -m '{"getraenk":"Espresso","menge_ml":40,"temperatur":92,"staerke":"stark","zeitstempel":"2026-02-21T10:30:00"}'
-  ```
-- Stelle sicher, dass der QoS-Level übereinstimmt
-
-### Lovelace Card wird nicht angezeigt
-
-- Prüfe, ob die Ressource in den Lovelace-Einstellungen registriert ist
-- Leere den Browser-Cache (Strg+Shift+R)
-- Prüfe die Browser-Konsole auf JavaScript-Fehler
-
-### Sensoren zeigen veraltete Werte
-
-- Sensoren werden bei jeder MQTT-Nachricht aktualisiert
-- Prüfe den MQTT-Broker-Status
-- HA-Logs auf Fehler prüfen
+**Einstellungen → System → Logs** → nach `kaffeemaschine` filtern.
 
 ---
 
