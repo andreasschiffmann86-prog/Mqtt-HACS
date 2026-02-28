@@ -1,0 +1,25 @@
+bestellen:
+  name: Getränk bestellen
+  description: >
+    Bestellt ein Getränk an der Kaffeemaschine via MQTT.
+    Das Command-Topic wird aus der Integrationskonfiguration gelesen.
+  fields:
+    beverage_id:
+      name: Beverage-ID
+      description: >
+        ID des Getränks aus dem MQTT /info Topic
+        (payload.beverageCounters[].id).
+      required: true
+      example: 1
+      selector:
+        number:
+          min: 1
+          max: 999
+          mode: box
+    beverage_name:
+      name: Getränkename
+      description: Anzeigename des Getränks (optional, nur für Logs).
+      required: false
+      example: Espresso
+      selector:
+        text:
