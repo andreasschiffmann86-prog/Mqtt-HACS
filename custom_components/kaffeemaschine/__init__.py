@@ -13,15 +13,18 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
     CONF_MQTT_ALERT_TOPIC,
+    CONF_MQTT_DISPENSING_START_TOPIC,
     CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
     DEFAULT_MQTT_ALERT_TOPIC,
+    DEFAULT_MQTT_DISPENSING_START_TOPIC,
     DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
     SIGNAL_ALERT_UPDATE,
     SIGNAL_ONLINE_UPDATE,
+    SIGNAL_PRODUKTION_UPDATE,
     SIGNAL_UPDATE,
 )
 from .store import KaffeemaschineSpeicher
@@ -46,6 +49,18 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.config_entries.async_update_entry(entry, data=new_data, version=2)
         _LOGGER.info("Migration auf Version 2 erfolgreich.")
 
+    if entry.version == 2:
+        # Version 2 → 3: mqtt_dispensing_start_topic ergänzen
+        new_data = dict(entry.data)
+        if CONF_MQTT_DISPENSING_START_TOPIC not in new_data:
+            new_data[CONF_MQTT_DISPENSING_START_TOPIC] = DEFAULT_MQTT_DISPENSING_START_TOPIC
+            _LOGGER.info(
+                "mqtt_dispensing_start_topic auf Standard '%s' gesetzt.",
+                DEFAULT_MQTT_DISPENSING_START_TOPIC,
+            )
+        hass.config_entries.async_update_entry(entry, data=new_data, version=3)
+        _LOGGER.info("Migration auf Version 3 erfolgreich.")
+
     return True
 
 
@@ -68,6 +83,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         CONF_MQTT_ALERT_TOPIC,
         entry.data.get(CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC),
     )
+    dispensing_start_topic = entry.options.get(
+        CONF_MQTT_DISPENSING_START_TOPIC,
+        entry.data.get(CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC),
+    )
 
     speicher = KaffeemaschineSpeicher(hass, entry.entry_id)
     await speicher.async_load()
@@ -77,9 +96,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "topic": topic,
         "online_topic": online_topic,
         "alert_topic": alert_topic,
+        "dispensing_start_topic": dispensing_start_topic,
         "max_entries": max_entries,
         "online": None,
         "online_timestamp": None,
+        "produktion_laufend": None,
     }
 
     @callback
@@ -163,10 +184,66 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.async_create_task(_bezug_speichern(hass, entry.entry_id, eintrag))
 
     async def _bezug_speichern(hass: HomeAssistant, entry_id: str, eintrag: dict):
-        """Bezug speichern und Sensoren aktualisieren."""
+        """Bezug speichern, Produktion beenden und Sensoren aktualisieren."""
         daten = hass.data[DOMAIN][entry_id]
         await daten["speicher"].async_add_eintrag(eintrag, daten["max_entries"])
+        # Laufende Produktion abschließen – echte Daten sind jetzt im Sensor
+        if daten.get("produktion_laufend") is not None:
+            daten["produktion_laufend"] = None
+            async_dispatcher_send(hass, f"{SIGNAL_PRODUKTION_UPDATE}_{entry_id}")
         async_dispatcher_send(hass, f"{SIGNAL_UPDATE}_{entry_id}")
+
+    @callback
+    def mqtt_dispensing_start_empfangen(nachricht):
+        """DISPENSING_START-Nachricht verarbeiten – Getränk ist in Zubereitung."""
+        try:
+            payload = json.loads(nachricht.payload)
+        except (ValueError, TypeError):
+            _LOGGER.warning(
+                "Ungültiger JSON-Payload auf DispensingStart-Topic %s: %s",
+                nachricht.topic,
+                nachricht.payload,
+            )
+            return
+
+        inner = payload.get("payload", {}) if isinstance(payload.get("payload"), dict) else {}
+
+        getraenk = (
+            inner.get("name")
+            or inner.get("beverageName")
+            or inner.get("getraenk")
+            or payload.get("name")
+            or payload.get("beverageName")
+            or payload.get("getraenk", "Unbekannt")
+        )
+        beverage_id = inner.get("beverageId", payload.get("beverageId"))
+        is_double = inner.get("isDouble", payload.get("isDouble", False))
+        estimated_seconds = (
+            inner.get("estimatedCycleTimeSeconds")
+            or payload.get("estimatedCycleTimeSeconds")
+        )
+        if estimated_seconds is None:
+            raw_ms = (
+                inner.get("estimatedCycleTime")
+                or payload.get("estimatedCycleTime")
+            )
+            if raw_ms:
+                estimated_seconds = int(raw_ms) // 1000
+
+        start_time = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+        produktion = {
+            "getraenk": getraenk,
+            "beverage_id": beverage_id,
+            "is_double": is_double,
+            "estimated_seconds": estimated_seconds,
+            "start_time": start_time,
+            "status": "IN_PRODUCTION",
+        }
+
+        hass.data[DOMAIN][entry.entry_id]["produktion_laufend"] = produktion
+        async_dispatcher_send(hass, f"{SIGNAL_PRODUKTION_UPDATE}_{entry.entry_id}")
+        _LOGGER.debug("Produktion gestartet: %s (~%s s)", getraenk, estimated_seconds)
 
     @callback
     def mqtt_online_nachricht_empfangen(nachricht):
@@ -306,6 +383,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsubscribe_alert = await mqtt.async_subscribe(
             hass, alert_topic_wildcard, mqtt_alert_nachricht_empfangen, qos=0
         )
+        _LOGGER.debug("DispensingStart-Topic abonniert: %s", dispensing_start_topic)
+        unsubscribe_dispensing_start = await mqtt.async_subscribe(
+            hass, dispensing_start_topic, mqtt_dispensing_start_empfangen, qos=0
+        )
     except Exception as err:
         _LOGGER.error("MQTT-Subscription fehlgeschlagen: %s", err, exc_info=True)
         return False
@@ -313,6 +394,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id]["unsubscribe"] = unsubscribe
     hass.data[DOMAIN][entry.entry_id]["unsubscribe_online"] = unsubscribe_online
     hass.data[DOMAIN][entry.entry_id]["unsubscribe_alert"] = unsubscribe_alert
+    hass.data[DOMAIN][entry.entry_id]["unsubscribe_dispensing_start"] = unsubscribe_dispensing_start
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -331,7 +413,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     daten = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if daten:
-        for key in ("unsubscribe", "unsubscribe_online", "unsubscribe_alert"):
+        for key in ("unsubscribe", "unsubscribe_online", "unsubscribe_alert", "unsubscribe_dispensing_start"):
             unsub = daten.get(key)
             if unsub:
                 unsub()

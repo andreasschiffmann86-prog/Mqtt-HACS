@@ -7,6 +7,7 @@
         "data": {
           "mqtt_topic": "MQTT-Topic",
           "mqtt_alert_topic": "MQTT-Alert-Topic",
+          "mqtt_dispensing_start_topic": "MQTT-Dispensing-Start-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -25,6 +26,7 @@
         "data": {
           "mqtt_topic": "MQTT-Topic",
           "mqtt_alert_topic": "MQTT-Alert-Topic",
+          "mqtt_dispensing_start_topic": "MQTT-Dispensing-Start-Topic",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -58,6 +60,9 @@
       },
       "alert_timeline": {
         "name": "Alert-Timeline"
+      },
+      "produktion_laufend": {
+        "name": "Produktion laufend"
       }
     },
     "binary_sensor": {
