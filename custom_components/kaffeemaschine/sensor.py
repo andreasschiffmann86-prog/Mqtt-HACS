@@ -17,6 +17,7 @@ from .const import (
     SENSOR_ALERT_TIMELINE,
     SENSOR_BEZUEGE_GESAMT,
     SENSOR_BEZUEGE_HEUTE,
+    SENSOR_GERAETE_MENU,
     SENSOR_LIEBLINGSGETRAENK,
     SENSOR_LETZTES_GETRAENK,
     SENSOR_PRODUKTION_LAUFEND,
@@ -24,6 +25,7 @@ from .const import (
     SENSOR_GERAETE_INFO,
     SENSOR_LETZTER_BEZUG_STATUS,
     SIGNAL_ALERT_UPDATE,
+    SIGNAL_INFO_UPDATE,
     SIGNAL_PRODUKTION_UPDATE,
     SIGNAL_UPDATE,
 )
@@ -57,6 +59,7 @@ async def async_setup_entry(
         LetzterBezugStatusSensor(hass, entry.entry_id, speicher),
         AlertTimelineSensor(hass, entry.entry_id, speicher),
         ProduktionLaufendSensor(hass, entry.entry_id),
+        GeraeteMenuSensor(hass, entry.entry_id),
     ]
     async_add_entities(sensoren)
 
@@ -536,3 +539,72 @@ class ProduktionLaufendSensor(SensorEntity):
 
         return attrs
 
+
+class GeraeteMenuSensor(SensorEntity):
+    """Sensor für das Getränkemenü der Kaffeemaschine (aus EQUIPMENT_INFO).
+
+    Wird durch das MQTT /info-Topic befüllt (retain=true).
+    Der Sensor enthält beverages und beverage_counters als Attribute –
+    die kaffeemaschine-card liest daraus die Buttons für die Bestelloberfläche.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:coffee-maker-outline"
+
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        """Sensor initialisieren."""
+        self.hass = hass
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{entry_id}_{SENSOR_GERAETE_MENU}"
+        self._attr_translation_key = SENSOR_GERAETE_MENU
+
+    async def async_added_to_hass(self) -> None:
+        """Info-Update-Signal abonnieren."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_INFO_UPDATE}_{self._entry_id}",
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Sensor-Status aktualisieren."""
+        self.async_write_ha_state()
+
+    def _get_menu(self) -> dict | None:
+        """Aktuelles Gerätemenü aus hass.data lesen."""
+        return (
+            self.hass.data.get(DOMAIN, {})
+            .get(self._entry_id, {})
+            .get("geraete_menu")
+        )
+
+    @property
+    def native_value(self) -> int | None:
+        """Anzahl der verfügbaren Getränke im Menü."""
+        menu = self._get_menu()
+        if menu is None:
+            return None
+        return len(menu.get("beverages", []))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Vollständiges Menü als Attribute."""
+        menu = self._get_menu()
+        if not menu:
+            return {}
+        return {
+            "beverages": menu.get("beverages", []),
+            "beverage_counters": menu.get("beverage_counters", []),
+            "machine_name": menu.get("machine_name"),
+            "machine_type": menu.get("machine_type"),
+            "serial_number": menu.get("serial_number"),
+            "software_version": menu.get("software_version"),
+            "manufacturer": menu.get("manufacturer"),
+            "model": menu.get("model"),
+            "store_id": menu.get("store_id"),
+            "last_update": menu.get("timestamp"),
+        }
