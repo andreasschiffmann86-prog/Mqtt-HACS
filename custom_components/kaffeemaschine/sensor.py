@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DOMAIN,
@@ -18,10 +19,12 @@ from .const import (
     SENSOR_BEZUEGE_HEUTE,
     SENSOR_LIEBLINGSGETRAENK,
     SENSOR_LETZTES_GETRAENK,
+    SENSOR_PRODUKTION_LAUFEND,
     SENSOR_TIMELINE,
     SENSOR_GERAETE_INFO,
     SENSOR_LETZTER_BEZUG_STATUS,
     SIGNAL_ALERT_UPDATE,
+    SIGNAL_PRODUKTION_UPDATE,
     SIGNAL_UPDATE,
 )
 from .store import KaffeemaschineSpeicher
@@ -53,6 +56,7 @@ async def async_setup_entry(
         GeraeteInfoSensor(hass, entry.entry_id, speicher),
         LetzterBezugStatusSensor(hass, entry.entry_id, speicher),
         AlertTimelineSensor(hass, entry.entry_id, speicher),
+        ProduktionLaufendSensor(hass, entry.entry_id),
     ]
     async_add_entities(sensoren)
 
@@ -415,4 +419,120 @@ class AlertTimelineSensor(SensorEntity):
             "open_count": len(offene_alerts),
             "all_alerts": [_bereichere_alert(a) for a in alle_alerts],
         }
+
+
+class ProduktionLaufendSensor(SensorEntity):
+    """Sensor für ein aktuell in Zubereitung befindliches Getränk."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_translation_key = SENSOR_PRODUKTION_LAUFEND
+
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        """Sensor initialisieren."""
+        self.hass = hass
+        self._entry_id = entry_id
+        self._attr_unique_id = f"{entry_id}_{SENSOR_PRODUKTION_LAUFEND}"
+        self._cancel_ticker: None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Auf Produktion-Dispatcher-Signale hören."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_PRODUKTION_UPDATE}_{self._entry_id}",
+                self._handle_update,
+            )
+        )
+        # Ticker beim Entladen der Entity automatisch stoppen
+        self.async_on_remove(self._stop_ticker)
+
+    def _start_ticker(self) -> None:
+        """1-Sekunden-Ticker starten um den Fortschritt live zu aktualisieren."""
+        if self._cancel_ticker is not None:
+            return  # Läuft bereits
+        self._cancel_ticker = async_track_time_interval(
+            self.hass,
+            self._tick,
+            timedelta(seconds=1),
+        )
+
+    def _stop_ticker(self) -> None:
+        """Ticker stoppen."""
+        if self._cancel_ticker is not None:
+            self._cancel_ticker()
+            self._cancel_ticker = None
+
+    @callback
+    def _tick(self, _now: datetime) -> None:
+        """Wird jede Sekunde aufgerufen – Zustand aktualisieren."""
+        if self._get_produktion() is None:
+            self._stop_ticker()
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_update(self) -> None:
+        """Sensor-Zustand aktualisieren und Ticker starten/stoppen."""
+        if self._get_produktion() is not None:
+            self._start_ticker()
+        else:
+            self._stop_ticker()
+        self.async_write_ha_state()
+
+    def _get_produktion(self) -> dict | None:
+        """Aktuellen Produktions-Status aus hass.data lesen."""
+        return (
+            self.hass.data.get(DOMAIN, {})
+            .get(self._entry_id, {})
+            .get("produktion_laufend")
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Getränkename wenn in Produktion, sonst None."""
+        produktion = self._get_produktion()
+        if produktion:
+            return produktion.get("getraenk", "Unbekannt")
+        return None
+
+    @property
+    def icon(self) -> str:
+        """Icon: laufende Maschine bei Produktion, fertig-Icon sonst."""
+        if self._get_produktion():
+            return "mdi:coffee-maker"
+        return "mdi:coffee-maker-check-outline"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Details zur laufenden Produktion als Attribute."""
+        produktion = self._get_produktion()
+        if not produktion:
+            return {"status": "idle"}
+
+        attrs: dict[str, Any] = {
+            "getraenk": produktion.get("getraenk"),
+            "beverage_id": produktion.get("beverage_id"),
+            "is_double": produktion.get("is_double"),
+            "estimated_seconds": produktion.get("estimated_seconds"),
+            "start_time": produktion.get("start_time"),
+            "status": produktion.get("status", "IN_PRODUCTION"),
+        }
+
+        # Verstrichene Zeit und Restzeit berechnen
+        start_raw = produktion.get("start_time")
+        if start_raw:
+            try:
+                start_dt = datetime.fromisoformat(start_raw)
+                if start_dt.tzinfo is None:
+                    start_dt = start_dt.replace(tzinfo=timezone.utc)
+                elapsed = int((datetime.now(timezone.utc) - start_dt).total_seconds())
+                attrs["elapsed_seconds"] = elapsed
+                estimated = produktion.get("estimated_seconds")
+                if estimated is not None:
+                    attrs["remaining_seconds"] = max(0, int(estimated) - elapsed)
+                    attrs["progress_percent"] = min(100, round(elapsed / int(estimated) * 100))
+            except (ValueError, TypeError):
+                pass
+
+        return attrs
 

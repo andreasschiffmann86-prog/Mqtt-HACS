@@ -9,10 +9,12 @@ from homeassistant.core import callback
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
     CONF_MQTT_ALERT_TOPIC,
+    CONF_MQTT_DISPENSING_START_TOPIC,
     CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
     DEFAULT_MQTT_ALERT_TOPIC,
+    DEFAULT_MQTT_DISPENSING_START_TOPIC,
     DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
@@ -22,7 +24,7 @@ from .const import (
 class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config Flow für Kaffeemaschine MQTT."""
 
-    VERSION = 2
+    VERSION = 3
 
     async def async_step_user(
         self, user_input: dict | None = None
@@ -47,6 +49,9 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_MQTT_ALERT_TOPIC: user_input.get(
                             CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC
                         ),
+                        CONF_MQTT_DISPENSING_START_TOPIC: user_input.get(
+                            CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC
+                        ),
                         CONF_MAX_TIMELINE_ENTRIES: user_input.get(
                             CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES
                         ),
@@ -58,6 +63,7 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_MQTT_TOPIC, default=DEFAULT_MQTT_TOPIC): str,
                 vol.Required(CONF_MQTT_ONLINE_TOPIC, default=DEFAULT_MQTT_ONLINE_TOPIC): str,
                 vol.Required(CONF_MQTT_ALERT_TOPIC, default=DEFAULT_MQTT_ALERT_TOPIC): str,
+                vol.Required(CONF_MQTT_DISPENSING_START_TOPIC, default=DEFAULT_MQTT_DISPENSING_START_TOPIC): str,
                 vol.Optional(
                     CONF_MAX_TIMELINE_ENTRIES, default=DEFAULT_MAX_TIMELINE_ENTRIES
                 ): vol.All(int, vol.Range(min=5, max=100)),
@@ -105,6 +111,10 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
             CONF_MQTT_ALERT_TOPIC,
             self.config_entry.data.get(CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC),
         )
+        current_dispensing_start_topic = self.config_entry.options.get(
+            CONF_MQTT_DISPENSING_START_TOPIC,
+            self.config_entry.data.get(CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC),
+        )
         current_max = self.config_entry.options.get(
             CONF_MAX_TIMELINE_ENTRIES,
             self.config_entry.data.get(
@@ -117,6 +127,7 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(CONF_MQTT_TOPIC, default=current_topic): str,
                 vol.Required(CONF_MQTT_ONLINE_TOPIC, default=current_online_topic): str,
                 vol.Required(CONF_MQTT_ALERT_TOPIC, default=current_alert_topic): str,
+                vol.Required(CONF_MQTT_DISPENSING_START_TOPIC, default=current_dispensing_start_topic): str,
                 vol.Optional(
                     CONF_MAX_TIMELINE_ENTRIES, default=current_max
                 ): vol.All(int, vol.Range(min=5, max=100)),
