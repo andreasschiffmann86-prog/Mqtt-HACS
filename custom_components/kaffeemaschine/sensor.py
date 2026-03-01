@@ -9,6 +9,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -47,7 +48,7 @@ async def async_setup_entry(
 ) -> None:
     """Sensoren für diesen Konfigurationseintrag einrichten."""
     daten = hass.data[DOMAIN][entry.entry_id]
-    speicher: KaffeemaschineSpeicher = daten["speicher"]
+    speicher = daten.speicher
 
     sensoren = [
         LetztesGetraenkSensor(hass, entry.entry_id, speicher),
@@ -74,22 +75,32 @@ class KaffeemaschineSensorBase(SensorEntity):
         self,
         hass: HomeAssistant,
         entry_id: str,
-        speicher: KaffeemaschineSpeicher,
         sensor_key: str,
+        signal: str = SIGNAL_UPDATE,
+        speicher: KaffeemaschineSpeicher | None = None,
     ) -> None:
         """Sensor initialisieren."""
         self.hass = hass
         self._entry_id = entry_id
         self._speicher = speicher
         self._sensor_key = sensor_key
+        self._signal = signal
         self._attr_unique_id = f"{entry_id}_{sensor_key}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Geräteinformationen für das HA-Geräte-Dashboard."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name="Kaffeemaschine",
+        )
 
     async def async_added_to_hass(self) -> None:
         """Auf Dispatcher-Signale hören."""
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{SIGNAL_UPDATE}_{self._entry_id}",
+                f"{self._signal}_{self._entry_id}",
                 self._handle_update,
             )
         )
@@ -110,12 +121,19 @@ class LetztesGetraenkSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_LETZTES_GETRAENK)
+        super().__init__(hass, entry_id, SENSOR_LETZTES_GETRAENK, SIGNAL_UPDATE, speicher)
+        self._cached: dict | None = None
+
+    @callback
+    def _handle_update(self) -> None:
+        """Gecachter Wert aktualisieren."""
+        self._cached = get_letztes_getraenk(self._speicher.get_eintraege())
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> str | None:
         """Letztes Getränk zurückgeben."""
-        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        letztes = self._cached or get_letztes_getraenk(self._speicher.get_eintraege())
         if letztes:
             return letztes.get("getraenk")
         return None
@@ -123,7 +141,7 @@ class LetztesGetraenkSensor(KaffeemaschineSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Attribute des letzten Bezugs zurückgeben."""
-        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        letztes = self._cached or get_letztes_getraenk(self._speicher.get_eintraege())
         if letztes:
             return {
                 "menge_ml": letztes.get("menge_ml"),
@@ -156,7 +174,7 @@ class BezuegeHeuteSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_BEZUEGE_HEUTE)
+        super().__init__(hass, entry_id, SENSOR_BEZUEGE_HEUTE, SIGNAL_UPDATE, speicher)
 
     @property
     def native_value(self) -> int:
@@ -175,7 +193,7 @@ class BezuegeGesamtSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_BEZUEGE_GESAMT)
+        super().__init__(hass, entry_id, SENSOR_BEZUEGE_GESAMT, SIGNAL_UPDATE, speicher)
 
     @property
     def native_value(self) -> int:
@@ -193,7 +211,7 @@ class LieblingsgetraenkSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_LIEBLINGSGETRAENK)
+        super().__init__(hass, entry_id, SENSOR_LIEBLINGSGETRAENK, SIGNAL_UPDATE, speicher)
 
     @property
     def native_value(self) -> str | None:
@@ -211,7 +229,7 @@ class TimelineSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_TIMELINE)
+        super().__init__(hass, entry_id, SENSOR_TIMELINE, SIGNAL_UPDATE, speicher)
 
     @property
     def native_value(self) -> int:
@@ -236,7 +254,7 @@ class GeraeteInfoSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_GERAETE_INFO)
+        super().__init__(hass, entry_id, SENSOR_GERAETE_INFO, SIGNAL_UPDATE, speicher)
 
     @property
     def native_value(self) -> str | None:
@@ -271,12 +289,19 @@ class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
         self, hass: HomeAssistant, entry_id: str, speicher: KaffeemaschineSpeicher
     ) -> None:
         """Sensor initialisieren."""
-        super().__init__(hass, entry_id, speicher, SENSOR_LETZTER_BEZUG_STATUS)
+        super().__init__(hass, entry_id, SENSOR_LETZTER_BEZUG_STATUS, SIGNAL_UPDATE, speicher)
+        self._cached: dict | None = None
+
+    @callback
+    def _handle_update(self) -> None:
+        """Gecachter Wert aktualisieren."""
+        self._cached = get_letztes_getraenk(self._speicher.get_eintraege())
+        self.async_write_ha_state()
 
     @property
     def native_value(self) -> str | None:
         """Status des letzten Bezugs zurückgeben."""
-        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        letztes = self._cached or get_letztes_getraenk(self._speicher.get_eintraege())
         if letztes:
             canceled = letztes.get("canceled")
             if canceled is True:
@@ -289,7 +314,7 @@ class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
     @property
     def icon(self) -> str:
         """Icon basierend auf Status."""
-        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        letztes = self._cached or get_letztes_getraenk(self._speicher.get_eintraege())
         if letztes and letztes.get("canceled") is True:
             return "mdi:cancel"
         return "mdi:check-circle-outline"
@@ -297,7 +322,7 @@ class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Bezug-Details als Attribute zurückgeben."""
-        letztes = get_letztes_getraenk(self._speicher.get_eintraege())
+        letztes = self._cached or get_letztes_getraenk(self._speicher.get_eintraege())
         if letztes:
             return {
                 "beverage_id": letztes.get("beverage_id"),
@@ -312,11 +337,9 @@ class LetzterBezugStatusSensor(KaffeemaschineSensorBase):
         return {}
 
 
-class AlertTimelineSensor(SensorEntity):
+class AlertTimelineSensor(KaffeemaschineSensorBase):
     """Sensor für die Alert-Timeline der Kaffeemaschine."""
 
-    _attr_should_poll = False
-    _attr_has_entity_name = True
     _attr_icon = "mdi:alert-circle"
     _attr_translation_key = SENSOR_ALERT_TIMELINE
 
@@ -327,25 +350,7 @@ class AlertTimelineSensor(SensorEntity):
         speicher: KaffeemaschineSpeicher,
     ) -> None:
         """Sensor initialisieren."""
-        self.hass = hass
-        self._entry_id = entry_id
-        self._speicher = speicher
-        self._attr_unique_id = f"{entry_id}_{SENSOR_ALERT_TIMELINE}"
-
-    async def async_added_to_hass(self) -> None:
-        """Auf Alert-Dispatcher-Signale hören."""
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_ALERT_UPDATE}_{self._entry_id}",
-                self._handle_update,
-            )
-        )
-
-    @callback
-    def _handle_update(self) -> None:
-        """Sensor-Zustand aktualisieren."""
-        self.async_write_ha_state()
+        super().__init__(hass, entry_id, SENSOR_ALERT_TIMELINE, SIGNAL_ALERT_UPDATE, speicher)
 
     @property
     def native_value(self) -> int:
@@ -424,29 +429,19 @@ class AlertTimelineSensor(SensorEntity):
         }
 
 
-class ProduktionLaufendSensor(SensorEntity):
+class ProduktionLaufendSensor(KaffeemaschineSensorBase):
     """Sensor für ein aktuell in Zubereitung befindliches Getränk."""
 
-    _attr_should_poll = False
-    _attr_has_entity_name = True
     _attr_translation_key = SENSOR_PRODUKTION_LAUFEND
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         """Sensor initialisieren."""
-        self.hass = hass
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{entry_id}_{SENSOR_PRODUKTION_LAUFEND}"
+        super().__init__(hass, entry_id, SENSOR_PRODUKTION_LAUFEND, SIGNAL_PRODUKTION_UPDATE)
         self._cancel_ticker: None = None
 
     async def async_added_to_hass(self) -> None:
         """Auf Produktion-Dispatcher-Signale hören."""
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_PRODUKTION_UPDATE}_{self._entry_id}",
-                self._handle_update,
-            )
-        )
+        await super().async_added_to_hass()
         # Ticker beim Entladen der Entity automatisch stoppen
         self.async_on_remove(self._stop_ticker)
 
@@ -484,11 +479,8 @@ class ProduktionLaufendSensor(SensorEntity):
 
     def _get_produktion(self) -> dict | None:
         """Aktuellen Produktions-Status aus hass.data lesen."""
-        return (
-            self.hass.data.get(DOMAIN, {})
-            .get(self._entry_id, {})
-            .get("produktion_laufend")
-        )
+        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        return daten.produktion_laufend if daten else None
 
     @property
     def native_value(self) -> str | None:
@@ -540,7 +532,7 @@ class ProduktionLaufendSensor(SensorEntity):
         return attrs
 
 
-class GeraeteMenuSensor(SensorEntity):
+class GeraeteMenuSensor(KaffeemaschineSensorBase):
     """Sensor für das Getränkemenü der Kaffeemaschine (aus EQUIPMENT_INFO).
 
     Wird durch das MQTT /info-Topic befüllt (retain=true).
@@ -548,39 +540,17 @@ class GeraeteMenuSensor(SensorEntity):
     die kaffeemaschine-card liest daraus die Buttons für die Bestelloberfläche.
     """
 
-    _attr_should_poll = False
-    _attr_has_entity_name = True
     _attr_icon = "mdi:coffee-maker-outline"
+    _attr_translation_key = SENSOR_GERAETE_MENU
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         """Sensor initialisieren."""
-        self.hass = hass
-        self._entry_id = entry_id
-        self._attr_unique_id = f"{entry_id}_{SENSOR_GERAETE_MENU}"
-        self._attr_translation_key = SENSOR_GERAETE_MENU
-
-    async def async_added_to_hass(self) -> None:
-        """Info-Update-Signal abonnieren."""
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass,
-                f"{SIGNAL_INFO_UPDATE}_{self._entry_id}",
-                self._handle_update,
-            )
-        )
-
-    @callback
-    def _handle_update(self) -> None:
-        """Sensor-Status aktualisieren."""
-        self.async_write_ha_state()
+        super().__init__(hass, entry_id, SENSOR_GERAETE_MENU, SIGNAL_INFO_UPDATE)
 
     def _get_menu(self) -> dict | None:
         """Aktuelles Gerätemenü aus hass.data lesen."""
-        return (
-            self.hass.data.get(DOMAIN, {})
-            .get(self._entry_id, {})
-            .get("geraete_menu")
-        )
+        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        return daten.geraete_menu if daten else None
 
     @property
     def native_value(self) -> int | None:
@@ -608,3 +578,4 @@ class GeraeteMenuSensor(SensorEntity):
             "store_id": menu.get("store_id"),
             "last_update": menu.get("timestamp"),
         }
+

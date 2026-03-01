@@ -11,6 +11,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -51,6 +52,14 @@ class KaffeemaschineOnlineSensor(BinarySensorEntity):
         self._entry_id = entry_id
         self._attr_unique_id = f"{entry_id}_{BINARY_SENSOR_ONLINE}"
 
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Geräteinformationen für das HA-Geräte-Dashboard."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._entry_id)},
+            name="Kaffeemaschine",
+        )
+
     async def async_added_to_hass(self) -> None:
         """Auf Dispatcher-Signale hören."""
         self.async_on_remove(
@@ -69,15 +78,14 @@ class KaffeemaschineOnlineSensor(BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         """Online-Status zurückgeben."""
-        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id, {})
-        return daten.get("online")
+        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
+        return daten.online if daten else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Zusätzliche Attribute zurückgeben."""
-        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id, {})
+        daten = self.hass.data.get(DOMAIN, {}).get(self._entry_id)
         attrs: dict[str, Any] = {}
-        online_timestamp = daten.get("online_timestamp")
-        if online_timestamp:
-            attrs["letztes_update"] = online_timestamp
+        if daten and daten.online_timestamp:
+            attrs["letztes_update"] = daten.online_timestamp
         return attrs

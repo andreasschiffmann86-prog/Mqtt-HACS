@@ -3,63 +3,66 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from typing import Any
 
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.core import HomeAssistant, ServiceCall
+import voluptuous as vol
+import homeassistant.helpers.config_validation as cv
 
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
     CONF_MQTT_ALERT_TOPIC,
+    CONF_MQTT_COMMAND_TOPIC,
     CONF_MQTT_DISPENSING_START_TOPIC,
+    CONF_MQTT_INFO_TOPIC,
     CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
     DEFAULT_MQTT_ALERT_TOPIC,
+    DEFAULT_MQTT_COMMAND_TOPIC,
     DEFAULT_MQTT_DISPENSING_START_TOPIC,
+    DEFAULT_MQTT_INFO_TOPIC,
     DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
-    SIGNAL_ALERT_UPDATE,
-    SIGNAL_ONLINE_UPDATE,
-    SIGNAL_PRODUKTION_UPDATE,
-    SIGNAL_UPDATE,
+    SERVICE_BESTELLEN,
 )
+from .helpers import get_config
+from .models import KaffeemaschinenDaten
+from .mqtt_handlers import MqttHandler
 from .store import KaffeemaschineSpeicher
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["binary_sensor", "sensor"]
 
+# ── Datengetriebene Migration ─────────────────────────────────────────────────
+# Mapping: version → {Feld: Default}
+_MIGRATIONS: dict[int, dict[str, Any]] = {
+    1: {CONF_MQTT_ALERT_TOPIC: DEFAULT_MQTT_ALERT_TOPIC},
+    2: {CONF_MQTT_DISPENSING_START_TOPIC: DEFAULT_MQTT_DISPENSING_START_TOPIC},
+    3: {CONF_MQTT_INFO_TOPIC: DEFAULT_MQTT_INFO_TOPIC},
+    4: {CONF_MQTT_COMMAND_TOPIC: DEFAULT_MQTT_COMMAND_TOPIC},
+}
+
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migration älterer Config-Entries auf neue Version."""
+    """Migration älterer Config-Entries auf aktuelle Version."""
     _LOGGER.info("Migriere Kaffeemaschinen-Config-Entry von Version %s", entry.version)
+    new_data = dict(entry.data)
 
-    if entry.version == 1:
-        # Version 1 → 2: mqtt_alert_topic ergänzen falls nicht vorhanden
-        new_data = dict(entry.data)
-        if CONF_MQTT_ALERT_TOPIC not in new_data:
-            new_data[CONF_MQTT_ALERT_TOPIC] = DEFAULT_MQTT_ALERT_TOPIC
+    while entry.version in _MIGRATIONS:
+        for key, default in _MIGRATIONS[entry.version].items():
+            new_data.setdefault(key, default)
             _LOGGER.info(
-                "mqtt_alert_topic auf Standard '%s' gesetzt.", DEFAULT_MQTT_ALERT_TOPIC
+                "  v%d→v%d: '%s' = '%s'",
+                entry.version, entry.version + 1, key, default,
             )
-        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
-        _LOGGER.info("Migration auf Version 2 erfolgreich.")
-
-    if entry.version == 2:
-        # Version 2 → 3: mqtt_dispensing_start_topic ergänzen
-        new_data = dict(entry.data)
-        if CONF_MQTT_DISPENSING_START_TOPIC not in new_data:
-            new_data[CONF_MQTT_DISPENSING_START_TOPIC] = DEFAULT_MQTT_DISPENSING_START_TOPIC
-            _LOGGER.info(
-                "mqtt_dispensing_start_topic auf Standard '%s' gesetzt.",
-                DEFAULT_MQTT_DISPENSING_START_TOPIC,
-            )
-        hass.config_entries.async_update_entry(entry, data=new_data, version=3)
-        _LOGGER.info("Migration auf Version 3 erfolgreich.")
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, version=entry.version + 1
+        )
 
     return True
 
@@ -68,335 +71,101 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Integration aus einem Konfigurationseintrag einrichten."""
     hass.data.setdefault(DOMAIN, {})
 
-    topic = entry.options.get(
-        CONF_MQTT_TOPIC, entry.data.get(CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC)
-    )
-    online_topic = entry.options.get(
-        CONF_MQTT_ONLINE_TOPIC,
-        entry.data.get(CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC),
-    )
-    max_entries = entry.options.get(
-        CONF_MAX_TIMELINE_ENTRIES,
-        entry.data.get(CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES),
-    )
-    alert_topic = entry.options.get(
-        CONF_MQTT_ALERT_TOPIC,
-        entry.data.get(CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC),
-    )
-    dispensing_start_topic = entry.options.get(
-        CONF_MQTT_DISPENSING_START_TOPIC,
-        entry.data.get(CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC),
-    )
+    topic = get_config(entry, CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC)
+    online_topic = get_config(entry, CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC)
+    alert_topic = get_config(entry, CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC)
+    dispensing_start_topic = get_config(entry, CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC)
+    info_topic = get_config(entry, CONF_MQTT_INFO_TOPIC, DEFAULT_MQTT_INFO_TOPIC)
+    command_topic = get_config(entry, CONF_MQTT_COMMAND_TOPIC, DEFAULT_MQTT_COMMAND_TOPIC)
+    max_entries = get_config(entry, CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES)
 
     speicher = KaffeemaschineSpeicher(hass, entry.entry_id)
     await speicher.async_load()
 
-    hass.data[DOMAIN][entry.entry_id] = {
-        "speicher": speicher,
-        "topic": topic,
-        "online_topic": online_topic,
-        "alert_topic": alert_topic,
-        "dispensing_start_topic": dispensing_start_topic,
-        "max_entries": max_entries,
-        "online": None,
-        "online_timestamp": None,
-        "produktion_laufend": None,
-    }
+    daten = KaffeemaschinenDaten(
+        speicher=speicher,
+        topic=topic,
+        online_topic=online_topic,
+        alert_topic=alert_topic,
+        dispensing_start_topic=dispensing_start_topic,
+        info_topic=info_topic,
+        command_topic=command_topic,
+        max_entries=max_entries,
+    )
+    hass.data[DOMAIN][entry.entry_id] = daten
 
-    @callback
-    def mqtt_nachricht_empfangen(nachricht):
-        """Eingehende MQTT-Nachricht verarbeiten."""
-        try:
-            payload = json.loads(nachricht.payload)
-        except (ValueError, TypeError):
-            _LOGGER.warning(
-                "Ungültiger JSON-Payload auf Topic %s: %s",
-                nachricht.topic,
-                nachricht.payload,
-            )
-            return
-
-        # Unterstütze sowohl flache als auch verschachtelte Payloads
-        # (z.B. Maschinen senden {payload: {getraenk: ...}, timestamp: ...})
-        inner = payload.get("payload", {}) if isinstance(payload.get("payload"), dict) else {}
-
-        getraenk = inner.get("getraenk") or payload.get("getraenk", "Unbekannt")
-        menge_ml = inner.get("menge_ml") or payload.get("menge_ml")
-        temperatur = inner.get("temperatur") or payload.get("temperatur")
-        kaffee_menge_gramm = inner.get("kaffee_menge_gramm") or payload.get("kaffee_menge_gramm")
-
-        # Dispensing-Details aus verschachteltem Payload extrahieren
-        canceled = inner.get("canceled", payload.get("canceled"))
-        cup_size = inner.get("cupSize", payload.get("cupSize"))
-        cycle_time = inner.get("cycleTime", payload.get("cycleTime"))
-        extraction_time = inner.get("extractionTime", payload.get("extractionTime"))
-        is_double = inner.get("isDouble", payload.get("isDouble"))
-        strokes = inner.get("strokes", payload.get("strokes"))
-        beverage_id = inner.get("beverageId", payload.get("beverageId"))
-        ingredients = inner.get("ingredients", payload.get("ingredients"))
-
-        # Geräte-Informationen
-        device = payload.get("device", {}) if isinstance(payload.get("device"), dict) else {}
-        device_model = device.get("model")
-        device_serial = device.get("serialNumber")
-        device_manufacturer = device.get("manufacturer")
-        device_sw_version = device.get("softwareVersion")
-        store_id = payload.get("storeId")
-
-        # Zeitstempel: unterstütze "zeitstempel" und "timestamp"
-        zeitstempel_raw = (
-            inner.get("zeitstempel")
-            or payload.get("zeitstempel")
-            or payload.get("timestamp")
-        )
-
-        if zeitstempel_raw:
-            try:
-                # "Z"-Suffix durch "+00:00" ersetzen für fromisoformat-Kompatibilität
-                ts_clean = zeitstempel_raw.replace("Z", "+00:00") if isinstance(zeitstempel_raw, str) else zeitstempel_raw
-                zeitstempel = datetime.fromisoformat(ts_clean).isoformat(timespec="milliseconds")
-            except ValueError:
-                zeitstempel = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        else:
-            zeitstempel = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-        eintrag = {
-            "getraenk": getraenk,
-            "menge_ml": menge_ml,
-            "temperatur": temperatur,
-            "kaffee_menge_gramm": kaffee_menge_gramm,
-            "zeitstempel": zeitstempel,
-            "canceled": canceled,
-            "cup_size": cup_size,
-            "cycle_time": cycle_time,
-            "extraction_time": extraction_time,
-            "is_double": is_double,
-            "strokes": strokes,
-            "beverage_id": beverage_id,
-            "ingredients": ingredients,
-            "device_model": device_model,
-            "device_serial": device_serial,
-            "device_manufacturer": device_manufacturer,
-            "device_sw_version": device_sw_version,
-            "store_id": store_id,
-        }
-
-        hass.async_create_task(_bezug_speichern(hass, entry.entry_id, eintrag))
-
-    async def _bezug_speichern(hass: HomeAssistant, entry_id: str, eintrag: dict):
-        """Bezug speichern, Produktion beenden und Sensoren aktualisieren."""
-        daten = hass.data[DOMAIN][entry_id]
-        await daten["speicher"].async_add_eintrag(eintrag, daten["max_entries"])
-        # Laufende Produktion abschließen – echte Daten sind jetzt im Sensor
-        if daten.get("produktion_laufend") is not None:
-            daten["produktion_laufend"] = None
-            async_dispatcher_send(hass, f"{SIGNAL_PRODUKTION_UPDATE}_{entry_id}")
-        async_dispatcher_send(hass, f"{SIGNAL_UPDATE}_{entry_id}")
-
-    @callback
-    def mqtt_dispensing_start_empfangen(nachricht):
-        """DISPENSING_START-Nachricht verarbeiten – Getränk ist in Zubereitung."""
-        try:
-            payload = json.loads(nachricht.payload)
-        except (ValueError, TypeError):
-            _LOGGER.warning(
-                "Ungültiger JSON-Payload auf DispensingStart-Topic %s: %s",
-                nachricht.topic,
-                nachricht.payload,
-            )
-            return
-
-        inner = payload.get("payload", {}) if isinstance(payload.get("payload"), dict) else {}
-
-        getraenk = (
-            inner.get("name")
-            or inner.get("beverageName")
-            or inner.get("getraenk")
-            or payload.get("name")
-            or payload.get("beverageName")
-            or payload.get("getraenk", "Unbekannt")
-        )
-        beverage_id = inner.get("beverageId", payload.get("beverageId"))
-        is_double = inner.get("isDouble", payload.get("isDouble", False))
-        estimated_seconds = (
-            inner.get("estimatedCycleTimeSeconds")
-            or payload.get("estimatedCycleTimeSeconds")
-        )
-        if estimated_seconds is None:
-            raw_ms = (
-                inner.get("estimatedCycleTime")
-                or payload.get("estimatedCycleTime")
-            )
-            if raw_ms:
-                estimated_seconds = int(raw_ms) // 1000
-
-        start_time = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-        produktion = {
-            "getraenk": getraenk,
-            "beverage_id": beverage_id,
-            "is_double": is_double,
-            "estimated_seconds": estimated_seconds,
-            "start_time": start_time,
-            "status": "IN_PRODUCTION",
-        }
-
-        hass.data[DOMAIN][entry.entry_id]["produktion_laufend"] = produktion
-        async_dispatcher_send(hass, f"{SIGNAL_PRODUKTION_UPDATE}_{entry.entry_id}")
-        _LOGGER.debug("Produktion gestartet: %s (~%s s)", getraenk, estimated_seconds)
-
-    @callback
-    def mqtt_online_nachricht_empfangen(nachricht):
-        """Eingehende MQTT-Online-Status-Nachricht verarbeiten."""
-        try:
-            payload = json.loads(nachricht.payload)
-        except (ValueError, TypeError):
-            _LOGGER.warning(
-                "Ungültiger JSON-Payload auf Online-Topic %s: %s",
-                nachricht.topic,
-                nachricht.payload,
-            )
-            return
-
-        online = payload.get("online")
-        if online is None:
-            _LOGGER.debug("Kein 'online'-Feld im Payload: %s", payload)
-            return
-
-        zeitstempel_raw = payload.get("timestamp")
-        if zeitstempel_raw:
-            try:
-                ts_clean = (
-                    zeitstempel_raw.replace("Z", "+00:00")
-                    if isinstance(zeitstempel_raw, str)
-                    else zeitstempel_raw
-                )
-                zeitstempel = datetime.fromisoformat(ts_clean).isoformat(timespec="milliseconds")
-            except ValueError:
-                zeitstempel = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        else:
-            zeitstempel = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-        hass.data[DOMAIN][entry.entry_id]["online"] = bool(online)
-        hass.data[DOMAIN][entry.entry_id]["online_timestamp"] = zeitstempel
-        async_dispatcher_send(hass, f"{SIGNAL_ONLINE_UPDATE}_{entry.entry_id}")
-
-        # Bei Verbindungsverlust alle offenen Alerts automatisch schließen
-        if not bool(online):
-            hass.async_create_task(_alerts_bei_offline_schliessen(hass, entry.entry_id, zeitstempel))
-
-    @callback
-    def mqtt_alert_nachricht_empfangen(nachricht):
-        """Eingehende MQTT-Alert-Nachricht verarbeiten."""
-        try:
-            payload = json.loads(nachricht.payload)
-        except (ValueError, TypeError):
-            _LOGGER.warning(
-                "Ungültiger JSON-Payload auf Alert-Topic %s: %s",
-                nachricht.topic,
-                nachricht.payload,
-            )
-            return
-
-        message_type = payload.get("messageType") or payload.get("message_type", "")
-        # Fallback: Subtopic-Suffix auswerten (.../alerts/raise → ALERT_RAISE)
-        if not message_type:
-            topic_suffix = nachricht.topic.split("/")[-1].upper()
-            if topic_suffix == "RAISE":
-                message_type = "ALERT_RAISE"
-            elif topic_suffix == "CLEAR":
-                message_type = "ALERT_CLEAR"
-        message_id = payload.get("messageId") or payload.get("message_id")
-        inner = payload.get("payload", {}) if isinstance(payload.get("payload"), dict) else {}
-        alert_id = inner.get("alertId") or inner.get("alert_id")
-        device = payload.get("device", {}) if isinstance(payload.get("device"), dict) else {}
-        store_id = payload.get("storeId")
-
-        # Immer HA-Serverzeit (UTC) verwenden.
-        # Der Sender liefert lokale Zeit ohne korrekten Offset → ignorieren.
-        zeitstempel = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-
-        if message_type == "ALERT_RAISE":
-            if not alert_id:
-                _LOGGER.warning("ALERT_RAISE ohne alertId empfangen: %s", payload)
-                return
-            alert_eintrag = {
-                "alertId": alert_id,
-                "category": inner.get("category"),
-                "description": inner.get("description"),
-                "errorCode": inner.get("errorCode"),
-                "severity": inner.get("severity"),
-                "raiseTime": zeitstempel,
-                "clearTime": None,
-                "messageIdRaise": message_id,
-                "messageIdClear": None,
-                "deviceModel": device.get("model"),
-                "deviceSerial": device.get("serialNumber"),
-                "deviceManufacturer": device.get("manufacturer"),
-                "deviceSwVersion": device.get("softwareVersion"),
-                "deviceFwVersion": device.get("firmwareVersion"),
-                "storeId": store_id,
-            }
-            hass.async_create_task(_alert_raise_speichern(hass, entry.entry_id, alert_eintrag))
-
-        elif message_type == "ALERT_CLEAR":
-            if not alert_id:
-                _LOGGER.warning("ALERT_CLEAR ohne alertId empfangen: %s", payload)
-                return
-            hass.async_create_task(_alert_clear_speichern(hass, entry.entry_id, alert_id, zeitstempel, message_id))
-
-        else:
-            _LOGGER.debug("Unbekannter messageType auf Alert-Topic: %s", message_type)
-
-    async def _alert_raise_speichern(hass: HomeAssistant, entry_id: str, alert: dict):
-        """Alert-Raise speichern und Sensor aktualisieren."""
-        daten = hass.data[DOMAIN][entry_id]
-        await daten["speicher"].async_add_alert_raise(alert)
-        async_dispatcher_send(hass, f"{SIGNAL_ALERT_UPDATE}_{entry_id}")
-
-    async def _alert_clear_speichern(hass: HomeAssistant, entry_id: str, alert_id: str, clear_time: str, message_id: str | None):
-        """Alert-Clear speichern und Sensor aktualisieren."""
-        daten = hass.data[DOMAIN][entry_id]
-        await daten["speicher"].async_add_alert_clear(alert_id, clear_time, message_id)
-        async_dispatcher_send(hass, f"{SIGNAL_ALERT_UPDATE}_{entry_id}")
-
-    async def _alerts_bei_offline_schliessen(hass: HomeAssistant, entry_id: str, close_time: str):
-        """Alle offenen Alerts schließen wenn die Maschine offline geht."""
-        daten = hass.data.get(DOMAIN, {}).get(entry_id)
-        if not daten:
-            return
-        count = await daten["speicher"].async_close_all_open_alerts(close_time)
-        if count > 0:
-            _LOGGER.info("%d offene Alert(s) beim Offline-Event geschlossen.", count)
-            async_dispatcher_send(hass, f"{SIGNAL_ALERT_UPDATE}_{entry_id}")
+    # ── MQTT-Subscriptions via Handler-Klasse ─────────────────────────────
+    handler = MqttHandler(hass, entry.entry_id)
 
     try:
         unsubscribe = await mqtt.async_subscribe(
-            hass, topic, mqtt_nachricht_empfangen, qos=0
+            hass, topic, handler.on_dispensing, qos=0
         )
         unsubscribe_online = await mqtt.async_subscribe(
-            hass, online_topic, mqtt_online_nachricht_empfangen, qos=0
+            hass, online_topic, handler.on_online_status, qos=0
         )
         # Wildcard-Subscription: fängt .../alerts/raise UND .../alerts/clear
+        # Hinweis: rstrip("/") verhindert Doppel-Slashes bei Trailing-Slash im Topic.
+        # Beispiel: "kaffeemaschine/alert" → "kaffeemaschine/alert/#"
+        #           "kaffeemaschine/alert/" → "kaffeemaschine/alert/#" (nicht "...//# ")
         alert_topic_wildcard = alert_topic.rstrip("/") + "/#"
         _LOGGER.debug("Alert-Topic abonniert: %s", alert_topic_wildcard)
         unsubscribe_alert = await mqtt.async_subscribe(
-            hass, alert_topic_wildcard, mqtt_alert_nachricht_empfangen, qos=0
+            hass, alert_topic_wildcard, handler.on_alert, qos=0
         )
         _LOGGER.debug("DispensingStart-Topic abonniert: %s", dispensing_start_topic)
         unsubscribe_dispensing_start = await mqtt.async_subscribe(
-            hass, dispensing_start_topic, mqtt_dispensing_start_empfangen, qos=0
+            hass, dispensing_start_topic, handler.on_dispensing_start, qos=0
+        )
+        _LOGGER.debug("Info-Topic abonniert: %s", info_topic)
+        unsubscribe_info = await mqtt.async_subscribe(
+            hass, info_topic, handler.on_info, qos=0
         )
     except Exception as err:
         _LOGGER.error("MQTT-Subscription fehlgeschlagen: %s", err, exc_info=True)
         return False
 
-    hass.data[DOMAIN][entry.entry_id]["unsubscribe"] = unsubscribe
-    hass.data[DOMAIN][entry.entry_id]["unsubscribe_online"] = unsubscribe_online
-    hass.data[DOMAIN][entry.entry_id]["unsubscribe_alert"] = unsubscribe_alert
-    hass.data[DOMAIN][entry.entry_id]["unsubscribe_dispensing_start"] = unsubscribe_dispensing_start
+    daten.unsubscribe = unsubscribe
+    daten.unsubscribe_online = unsubscribe_online
+    daten.unsubscribe_alert = unsubscribe_alert
+    daten.unsubscribe_dispensing_start = unsubscribe_dispensing_start
+    daten.unsubscribe_info = unsubscribe_info
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # ── Service: kaffeemaschine.bestellen ─────────────────────────────────
+    if not hass.services.has_service(DOMAIN, SERVICE_BESTELLEN):
+        _bestellen_schema = vol.Schema({
+            vol.Required("beverage_id"): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            vol.Optional("beverage_name", default=""): cv.string,
+            vol.Optional("entry_id"): cv.string,
+        })
+
+        async def async_handle_bestellen(call: ServiceCall) -> None:
+            """Getränk via MQTT bestellen – Topic aus der Integration."""
+            beverage_id: int = call.data["beverage_id"]
+            beverage_name: str = call.data.get("beverage_name", "")
+            entry_id = call.data.get("entry_id")
+            alle = hass.data.get(DOMAIN, {})
+            if entry_id:
+                daten = alle.get(entry_id)
+            else:
+                daten = next(iter(alle.values()), None)
+            if not daten:
+                _LOGGER.error("kaffeemaschine.bestellen: keine aktive Integration gefunden.")
+                return
+            cmd_topic = daten.command_topic
+            payload = json.dumps({"messageType": "START_BEVERAGE", "beverageId": beverage_id})
+            await mqtt.async_publish(hass, cmd_topic, payload, qos=0, retain=False)
+            _LOGGER.info(
+                "Getränk bestellt: id=%d name='%s' topic=%s",
+                beverage_id, beverage_name, cmd_topic,
+            )
+
+        hass.services.async_register(
+            DOMAIN, SERVICE_BESTELLEN, async_handle_bestellen, schema=_bestellen_schema
+        )
+        _LOGGER.debug("Service %s.%s registriert.", DOMAIN, SERVICE_BESTELLEN)
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
@@ -408,15 +177,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     except Exception:  # noqa: BLE001
-        _LOGGER.warning("Plattformen konnten nicht entladen werden (evtl. nie geladen) – Cleanup trotzdem.", exc_info=True)
+        _LOGGER.warning(
+            "Plattformen konnten nicht entladen werden (evtl. nie geladen) – Cleanup trotzdem.",
+            exc_info=True,
+        )
         unload_ok = True
 
-    daten = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    daten: KaffeemaschinenDaten | None = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     if daten:
-        for key in ("unsubscribe", "unsubscribe_online", "unsubscribe_alert", "unsubscribe_dispensing_start"):
-            unsub = daten.get(key)
+        for unsub in (
+            daten.unsubscribe, daten.unsubscribe_online, daten.unsubscribe_alert,
+            daten.unsubscribe_dispensing_start, daten.unsubscribe_info,
+        ):
             if unsub:
                 unsub()
+
+    # Service abmelden wenn kein Entry mehr aktiv
+    if not hass.data.get(DOMAIN):
+        if hass.services.has_service(DOMAIN, SERVICE_BESTELLEN):
+            hass.services.async_remove(DOMAIN, SERVICE_BESTELLEN)
 
     return unload_ok
 

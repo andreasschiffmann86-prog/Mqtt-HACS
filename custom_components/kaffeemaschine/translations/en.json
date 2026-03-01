@@ -3,11 +3,14 @@
     "step": {
       "user": {
         "title": "Set up Coffee Machine MQTT",
-        "description": "Please configure the MQTT topic and timeline settings.",
+        "description": "Please configure the MQTT topics and timeline settings.",
         "data": {
-          "mqtt_topic": "MQTT Topic",
+          "mqtt_topic": "MQTT Topic (dispensing)",
+          "mqtt_online_topic": "MQTT Online Status Topic",
           "mqtt_alert_topic": "MQTT Alert Topic",
           "mqtt_dispensing_start_topic": "MQTT Dispensing Start Topic",
+          "mqtt_info_topic": "MQTT Info Topic (beverage menu)",
+          "mqtt_command_topic": "MQTT Command Topic (order)",
           "max_timeline_entries": "Maximum timeline entries"
         }
       }
@@ -24,9 +27,12 @@
       "init": {
         "title": "Coffee Machine MQTT Options",
         "data": {
-          "mqtt_topic": "MQTT Topic",
+          "mqtt_topic": "MQTT Topic (dispensing)",
+          "mqtt_online_topic": "MQTT Online Status Topic",
           "mqtt_alert_topic": "MQTT Alert Topic",
           "mqtt_dispensing_start_topic": "MQTT Dispensing Start Topic",
+          "mqtt_info_topic": "MQTT Info Topic (beverage menu)",
+          "mqtt_command_topic": "MQTT Command Topic (order)",
           "max_timeline_entries": "Maximum timeline entries"
         }
       }
@@ -63,6 +69,9 @@
       },
       "produktion_laufend": {
         "name": "Production in Progress"
+      },
+      "geraete_menu": {
+        "name": "Beverage Menu"
       }
     },
     "binary_sensor": {

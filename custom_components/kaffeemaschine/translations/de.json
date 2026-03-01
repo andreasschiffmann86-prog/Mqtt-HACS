@@ -8,6 +8,8 @@
           "mqtt_topic": "MQTT-Topic",
           "mqtt_alert_topic": "MQTT-Alert-Topic",
           "mqtt_dispensing_start_topic": "MQTT-Dispensing-Start-Topic",
+          "mqtt_info_topic": "MQTT-Info-Topic (Gerätemenü)",
+          "mqtt_command_topic": "MQTT-Command-Topic (Bestellung)",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -27,6 +29,8 @@
           "mqtt_topic": "MQTT-Topic",
           "mqtt_alert_topic": "MQTT-Alert-Topic",
           "mqtt_dispensing_start_topic": "MQTT-Dispensing-Start-Topic",
+          "mqtt_info_topic": "MQTT-Info-Topic (Gerätemenü)",
+          "mqtt_command_topic": "MQTT-Command-Topic (Bestellung)",
           "max_timeline_entries": "Maximale Timeline-Einträge"
         }
       }
@@ -63,6 +67,9 @@
       },
       "produktion_laufend": {
         "name": "Produktion laufend"
+      },
+      "geraete_menu": {
+        "name": "Gerätemenü"
       }
     },
     "binary_sensor": {

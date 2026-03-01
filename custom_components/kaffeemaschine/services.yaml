@@ -3,6 +3,7 @@ bestellen:
   description: >
     Bestellt ein Getränk an der Kaffeemaschine via MQTT.
     Das Command-Topic wird aus der Integrationskonfiguration gelesen.
+    Bei mehreren Maschinen kann per entry_id die gewünschte gewählt werden.
   fields:
     beverage_id:
       name: Beverage-ID
@@ -21,5 +22,13 @@ bestellen:
       description: Anzeigename des Getränks (optional, nur für Logs).
       required: false
       example: Espresso
+      selector:
+        text:
+    entry_id:
+      name: Config-Entry-ID
+      description: >
+        ID des Konfigurationseintrags. Nur nötig bei mehreren
+        Kaffeemaschinen. Standard: erste gefundene Maschine.
+      required: false
       selector:
         text:
