@@ -1,0 +1,238 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract-version.outputs.version }}
+      manifest-version: ${{ steps.check-manifest.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: extract-version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $TAG_VERSION"
+
+      - name: Check manifest.json version
+        id: check-manifest
+        run: |
+          if [ ! -f "custom_components/kaffeemaschine/manifest.json" ]; then
+            echo "Error: manifest.json not found"
+            exit 1
+          fi
+          
+          MANIFEST_VERSION=$(python3 -c "
+          import json
+          with open('custom_components/kaffeemaschine/manifest.json', 'r') as f:
+              data = json.load(f)
+              print(data.get('version', ''))
+          ")
+          
+          echo "version=$MANIFEST_VERSION" >> $GITHUB_OUTPUT
+          echo "Manifest version: $MANIFEST_VERSION"
+
+      - name: Validate version consistency
+        run: |
+          TAG_VERSION="${{ steps.extract-version.outputs.version }}"
+          MANIFEST_VERSION="${{ steps.check-manifest.outputs.version }}"
+          
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Error: Version mismatch!"
+            echo "Tag version: $TAG_VERSION"
+            echo "Manifest version: $MANIFEST_VERSION"
+            echo "Please ensure the version in manifest.json matches the Git tag."
+            exit 1
+          fi
+          
+          echo "✅ Version consistency validated: $TAG_VERSION"
+
+      - name: Validate semantic versioning format
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "Error: Version '$VERSION' does not follow semantic versioning format (MAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+          echo "✅ Semantic versioning format validated"
+
+  create-release:
+    needs: validate-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          
+          # Check if CHANGELOG.md exists
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "Warning: CHANGELOG.md not found, creating basic release notes"
+            echo "release_notes=Release version $VERSION" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Extract changelog section for this version
+          python3 << 'EOF'
+          import re
+          import sys
+          
+          version = "${{ needs.validate-version.outputs.version }}"
+          
+          try:
+              with open('CHANGELOG.md', 'r', encoding='utf-8') as f:
+                  content = f.read()
+              
+              # Look for version section (supports different formats)
+              patterns = [
+                  rf'## \[?{re.escape(version)}\]?.*?\n(.*?)(?=\n## |\n# |\Z)',
+                  rf'# \[?{re.escape(version)}\]?.*?\n(.*?)(?=\n## |\n# |\Z)',
+                  rf'### \[?{re.escape(version)}\]?.*?\n(.*?)(?=\n## |\n# |\n### |\Z)'
+              ]
+              
+              release_notes = None
+              for pattern in patterns:
+                  match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                  if match:
+                      release_notes = match.group(1).strip()
+                      break
+              
+              if not release_notes:
+                  # Fallback: look for any mention of the version
+                  lines = content.split('\n')
+                  start_idx = None
+                  for i, line in enumerate(lines):
+                      if version in line and any(marker in line.lower() for marker in ['##', '#', '###', 'version', 'release']):
+                          start_idx = i + 1
+                          break
+                  
+                  if start_idx:
+                      end_idx = len(lines)
+                      for i in range(start_idx, len(lines)):
+                          if lines[i].strip().startswith('#'):
+                              end_idx = i
+                              break
+                      release_notes = '\n'.join(lines[start_idx:end_idx]).strip()
+              
+              if not release_notes:
+                  release_notes = f"Release version {version}"
+              
+              # Clean up the release notes
+              release_notes = release_notes.strip()
+              if len(release_notes) > 4000:  # GitHub has limits
+                  release_notes = release_notes[:4000] + "..."
+              
+              # Write to GitHub output (handle multiline)
+              with open('release_notes.txt', 'w', encoding='utf-8') as f:
+                  f.write(release_notes)
+              
+              print(f"Extracted release notes for version {version}")
+              
+          except Exception as e:
+              print(f"Error extracting changelog: {e}")
+              with open('release_notes.txt', 'w', encoding='utf-8') as f:
+                  f.write(f"Release version {version}")
+          EOF
+
+      - name: Read release notes
+        id: read-notes
+        run: |
+          if [ -f "release_notes.txt" ]; then
+            {
+              echo 'RELEASE_NOTES<<EOF'
+              cat release_notes.txt
+              echo EOF
+            } >> $GITHUB_OUTPUT
+          else
+            echo "RELEASE_NOTES=Release version ${{ needs.validate-version.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: "Kaffeemaschine Integration v${{ needs.validate-version.outputs.version }}"
+          body: |
+            # Kaffeemaschine Integration v${{ needs.validate-version.outputs.version }}
+            
+            ${{ steps.read-notes.outputs.RELEASE_NOTES }}
+            
+            ---
+            
+            ## Installation via HACS
+            
+            1. Ensure HACS is installed in your Home Assistant instance
+            2. Go to HACS → Integrations
+            3. Search for "Kaffeemaschine" 
+            4. Install this version (v${{ needs.validate-version.outputs.version }})
+            5. Restart Home Assistant
+            6. Add the integration via Settings → Devices & Services
+            
+            ## Manual Installation
+            
+            1. Download the latest release
+            2. Extract to `custom_components/kaffeemaschine/`
+            3. Restart Home Assistant
+            4. Add the integration via Settings → Devices & Services
+            
+            ## Compatibility
+            
+            - Home Assistant Core: 2023.1.0+
+            - HACS: Latest version recommended
+            - Python: 3.10+
+            
+            For support and documentation, visit the [GitHub repository](https://github.com/${{ github.repository }}).
+          draft: false
+          prerelease: ${{ contains(needs.validate-version.outputs.version, '-') }}
+
+      - name: Update release with assets
+        run: |
+          echo "✅ Release v${{ needs.validate-version.outputs.version }} created successfully"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.validate-version.outputs.version }}"
+          echo "📦 HACS will automatically detect this release"
+
+  notify-success:
+    needs: [validate-version, create-release]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Success notification
+        run: |
+          echo "🎉 Release workflow completed successfully!"
+          echo "📋 Summary:"
+          echo "  - Version: v${{ needs.validate-version.outputs.version }}"
+          echo "  - Manifest version validated: ✅"
+          echo "  - GitHub Release created: ✅"
+          echo "  - HACS compatibility: ✅"
+          echo ""
+          echo "The release is now available for installation via HACS."
+
+  notify-failure:
+    needs: [validate-version, create-release]
+    runs-on: ubuntu-latest
+    if: failure()
+    steps:
+      - name: Failure notification
+        run: |
+          echo "❌ Release workflow failed!"
+          echo "Please check the logs above for details."
+          echo "Common issues:"
+          echo "  - Version mismatch between tag and manifest.json"
+          echo "  - Invalid semantic versioning format"
+          echo "  - Missing or malformed CHANGELOG.md"
+          echo "  - GitHub token permissions"

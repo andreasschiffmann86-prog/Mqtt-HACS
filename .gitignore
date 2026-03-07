@@ -7,3 +7,7 @@ dist/
 build/
 .env
 .venv/
+worker.yaml
+.worker/last_run.json
+logs/worker.log
+requirements.txt
