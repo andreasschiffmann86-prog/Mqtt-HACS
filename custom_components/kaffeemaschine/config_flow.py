@@ -9,22 +9,74 @@ from homeassistant.core import callback
 from .const import (
     CONF_MAX_TIMELINE_ENTRIES,
     CONF_MQTT_ALERT_TOPIC,
+    CONF_MQTT_COMMAND_TOPIC,
     CONF_MQTT_DISPENSING_START_TOPIC,
+    CONF_MQTT_INFO_TOPIC,
     CONF_MQTT_ONLINE_TOPIC,
     CONF_MQTT_TOPIC,
     DEFAULT_MAX_TIMELINE_ENTRIES,
     DEFAULT_MQTT_ALERT_TOPIC,
+    DEFAULT_MQTT_COMMAND_TOPIC,
     DEFAULT_MQTT_DISPENSING_START_TOPIC,
+    DEFAULT_MQTT_INFO_TOPIC,
     DEFAULT_MQTT_ONLINE_TOPIC,
     DEFAULT_MQTT_TOPIC,
     DOMAIN,
 )
+from .helpers import get_config
+
+# Defaults-Mapping für Schema-Factory und Options-Flow
+_ALL_DEFAULTS: dict[str, str | int] = {
+    CONF_MQTT_TOPIC: DEFAULT_MQTT_TOPIC,
+    CONF_MQTT_ONLINE_TOPIC: DEFAULT_MQTT_ONLINE_TOPIC,
+    CONF_MQTT_ALERT_TOPIC: DEFAULT_MQTT_ALERT_TOPIC,
+    CONF_MQTT_DISPENSING_START_TOPIC: DEFAULT_MQTT_DISPENSING_START_TOPIC,
+    CONF_MQTT_INFO_TOPIC: DEFAULT_MQTT_INFO_TOPIC,
+    CONF_MQTT_COMMAND_TOPIC: DEFAULT_MQTT_COMMAND_TOPIC,
+    CONF_MAX_TIMELINE_ENTRIES: DEFAULT_MAX_TIMELINE_ENTRIES,
+}
+
+
+def _build_config_schema(defaults: dict) -> vol.Schema:
+    """Erstellt das Topic-Schema mit gegebenen Defaults."""
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_MQTT_TOPIC,
+                default=defaults.get(CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC),
+            ): str,
+            vol.Required(
+                CONF_MQTT_ONLINE_TOPIC,
+                default=defaults.get(CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC),
+            ): str,
+            vol.Required(
+                CONF_MQTT_ALERT_TOPIC,
+                default=defaults.get(CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC),
+            ): str,
+            vol.Required(
+                CONF_MQTT_DISPENSING_START_TOPIC,
+                default=defaults.get(CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC),
+            ): str,
+            vol.Required(
+                CONF_MQTT_INFO_TOPIC,
+                default=defaults.get(CONF_MQTT_INFO_TOPIC, DEFAULT_MQTT_INFO_TOPIC),
+            ): str,
+            vol.Required(
+                CONF_MQTT_COMMAND_TOPIC,
+                default=defaults.get(CONF_MQTT_COMMAND_TOPIC, DEFAULT_MQTT_COMMAND_TOPIC),
+            ): str,
+            vol.Optional(
+                CONF_MAX_TIMELINE_ENTRIES,
+                default=defaults.get(CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES),
+            ): vol.All(int, vol.Range(min=5, max=100)),
+        }
+    )
 
 
 class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config Flow für Kaffeemaschine MQTT."""
 
-    VERSION = 3
+    VERSION = 5
 
     async def async_step_user(
         self, user_input: dict | None = None
@@ -42,37 +94,14 @@ class KaffeemaschinConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title=f"Kaffeemaschine ({topic})",
                     data={
-                        CONF_MQTT_TOPIC: topic,
-                        CONF_MQTT_ONLINE_TOPIC: user_input.get(
-                            CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC
-                        ),
-                        CONF_MQTT_ALERT_TOPIC: user_input.get(
-                            CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC
-                        ),
-                        CONF_MQTT_DISPENSING_START_TOPIC: user_input.get(
-                            CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC
-                        ),
-                        CONF_MAX_TIMELINE_ENTRIES: user_input.get(
-                            CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES
-                        ),
+                        key: user_input.get(key, default)
+                        for key, default in _ALL_DEFAULTS.items()
                     },
                 )
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_MQTT_TOPIC, default=DEFAULT_MQTT_TOPIC): str,
-                vol.Required(CONF_MQTT_ONLINE_TOPIC, default=DEFAULT_MQTT_ONLINE_TOPIC): str,
-                vol.Required(CONF_MQTT_ALERT_TOPIC, default=DEFAULT_MQTT_ALERT_TOPIC): str,
-                vol.Required(CONF_MQTT_DISPENSING_START_TOPIC, default=DEFAULT_MQTT_DISPENSING_START_TOPIC): str,
-                vol.Optional(
-                    CONF_MAX_TIMELINE_ENTRIES, default=DEFAULT_MAX_TIMELINE_ENTRIES
-                ): vol.All(int, vol.Range(min=5, max=100)),
-            }
-        )
-
         return self.async_show_form(
             step_id="user",
-            data_schema=schema,
+            data_schema=_build_config_schema(_ALL_DEFAULTS),
             errors=errors,
         )
 
@@ -99,43 +128,13 @@ class KaffeemaschinenOptionsFlow(config_entries.OptionsFlow):
             else:
                 return self.async_create_entry(title="", data=user_input)
 
-        current_topic = self.config_entry.options.get(
-            CONF_MQTT_TOPIC,
-            self.config_entry.data.get(CONF_MQTT_TOPIC, DEFAULT_MQTT_TOPIC),
-        )
-        current_online_topic = self.config_entry.options.get(
-            CONF_MQTT_ONLINE_TOPIC,
-            self.config_entry.data.get(CONF_MQTT_ONLINE_TOPIC, DEFAULT_MQTT_ONLINE_TOPIC),
-        )
-        current_alert_topic = self.config_entry.options.get(
-            CONF_MQTT_ALERT_TOPIC,
-            self.config_entry.data.get(CONF_MQTT_ALERT_TOPIC, DEFAULT_MQTT_ALERT_TOPIC),
-        )
-        current_dispensing_start_topic = self.config_entry.options.get(
-            CONF_MQTT_DISPENSING_START_TOPIC,
-            self.config_entry.data.get(CONF_MQTT_DISPENSING_START_TOPIC, DEFAULT_MQTT_DISPENSING_START_TOPIC),
-        )
-        current_max = self.config_entry.options.get(
-            CONF_MAX_TIMELINE_ENTRIES,
-            self.config_entry.data.get(
-                CONF_MAX_TIMELINE_ENTRIES, DEFAULT_MAX_TIMELINE_ENTRIES
-            ),
-        )
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_MQTT_TOPIC, default=current_topic): str,
-                vol.Required(CONF_MQTT_ONLINE_TOPIC, default=current_online_topic): str,
-                vol.Required(CONF_MQTT_ALERT_TOPIC, default=current_alert_topic): str,
-                vol.Required(CONF_MQTT_DISPENSING_START_TOPIC, default=current_dispensing_start_topic): str,
-                vol.Optional(
-                    CONF_MAX_TIMELINE_ENTRIES, default=current_max
-                ): vol.All(int, vol.Range(min=5, max=100)),
-            }
-        )
+        current = {
+            key: get_config(self.config_entry, key, default)
+            for key, default in _ALL_DEFAULTS.items()
+        }
 
         return self.async_show_form(
             step_id="init",
-            data_schema=schema,
+            data_schema=_build_config_schema(current),
             errors=errors,
         )

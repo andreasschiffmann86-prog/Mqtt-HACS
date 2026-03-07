@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, datetime
+from datetime import date
 
 
 def get_bezuege_heute(eintraege: list[dict]) -> int:
@@ -36,12 +36,3 @@ def get_letztes_getraenk(eintraege: list[dict]) -> dict | None:
 def get_timeline(eintraege: list[dict], anzahl: int = 10) -> list[dict]:
     """Die letzten n Bezüge für die Timeline zurückgeben (neueste zuerst)."""
     return list(reversed(eintraege[-anzahl:]))
-
-
-def format_zeitstempel(zeitstempel: str) -> str:
-    """ISO-Zeitstempel in lesbares Format umwandeln."""
-    try:
-        dt = datetime.fromisoformat(zeitstempel)
-        return dt.strftime("%d.%m.%Y %H:%M")
-    except (ValueError, TypeError):
-        return zeitstempel
